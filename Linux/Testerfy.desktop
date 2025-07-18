@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Testerfy
+Comment=Spotify Like/Dislike Tray Tool
+Exec=/bin/bash -c 'cd ~/Documents/Testerfy && ./start_testerfy.sh'
+Icon=~/Documents/Testerfy/.testerfy_tray_icon.png
+Terminal=false
+Categories=Audio;Music;Utility;
+StartupNotify=false 
