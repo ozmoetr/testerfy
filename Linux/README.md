@@ -26,14 +26,14 @@ A powerful Spotify automation and playlist manager with secure credential storag
 
 **Linux/macOS:**
 ```bash
-git clone https://github.com/yourusername/testerfy.git
+git clone https://github.com/ozmoetr/testerfy.git
 cd testerfy
 ./install.sh
 ```
 
 **Windows:**
 ```cmd
-git clone https://github.com/yourusername/testerfy.git
+git clone https://github.com/ozmoetr/testerfy.git
 cd testerfy
 install.bat
 ```
@@ -42,7 +42,7 @@ install.bat
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/testerfy.git
+   git clone https://github.com/ozmoetr/testerfy.git
    cd testerfy
    ```
 
@@ -129,27 +129,6 @@ python main.py
 - Current song information in tooltip
 - Easy window toggle
 
-## Configuration (Required for First Use)
-
-To use Testerfy, you must create a configuration file named `.testerfy_config.json` in the same directory as the application (or set the `TESTERFY_CONFIG_PATH` environment variable to point to your config file).
-
-**Example `.testerfy_config.json`:**
-```json
-{
-  "client_id": "your_spotify_client_id",
-  "client_secret": "your_spotify_client_secret",
-  "redirect_uri": "http://localhost:8888/callback"
-}
-```
-
-When you launch Testerfy, it will automatically use these credentials to prefill the authentication fields and can auto-authenticate your instance.
-
-**Instructions:**
-1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create an app to get your credentials.
-2. Copy your Client ID, Client Secret, and set a Redirect URI (e.g., `http://localhost:8888/callback`).
-3. Paste them into your `.testerfy_config.json` file as shown above.
-4. Start Testerfy. The app will use these credentials for authentication.
-
 ## Configuration
 
 ### Settings Files
@@ -204,7 +183,7 @@ By default, Testerfy looks for a config file at `~/Documents/.testerfy_config.js
 {
   "client_id": "your_spotify_client_id",
   "client_secret": "your_spotify_client_secret",
-  "redirect_uri": "http://localhost:8888/callback",
+  "redirect_uri": "http://127.0.0.1:9111/callback",
   "selected_playlists": [
     "37i9dQZF1DXcBWIGoYBM5M",  // Spotify playlist ID
     "My Favorite Playlist"      // or exact playlist name

@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 print('Testerfy main.py started')
 import logging
-logging.basicConfig(filename='testerfy_desktop_debug.log', level=logging.INFO)
+import os
+
+# Create proper log directory in user's home
+log_dir = os.path.expanduser("~/.testerfy")
+os.makedirs(log_dir, exist_ok=True)
+desktop_log_file = os.path.join(log_dir, "testerfy_desktop_debug.log")
+
+# Configure initial logging
+logging.basicConfig(filename=desktop_log_file, level=logging.INFO)
 logging.info('Testerfy main.py started (logging)')
 import sys
 import json
@@ -643,7 +651,7 @@ class SettingsTab(QWidget):
         # Clear input fields and checkbox
         self.client_id_input.clear()
         self.client_secret_input.clear()
-        self.redirect_uri_input.setText("")
+        self.redirect_uri_input.setText("http://127.0.0.1:9111/callback")
         self.save_credentials_checkbox.setChecked(False)
         # Remove: self.auto_login_checkbox.setChecked(False)
         self.status_label.setText("")
@@ -1240,11 +1248,14 @@ class DebugLogTab(QWidget):
             color = None
             lower = text.lower()
             add_hr = False
-            if 'dislike action completed' in lower or 'removed from current playlist' in lower:
+            if 'dislike action completed' in lower:
                 icon = '💩'
                 add_hr = True
-            elif 'like action completed' in lower or 'added to playlist' in lower:
+            elif 'like action completed' in lower:
                 icon = '❤️'
+                add_hr = True
+            elif 'successfully removed from current playlist' in lower or 'successfully added to playlist' in lower:
+                icon = '✅'
                 add_hr = True
             elif 'action completed' in lower:
                 icon = '✅'
@@ -1279,22 +1290,43 @@ class DebugLogTab(QWidget):
                 html_line += '<br><hr style="border:1px solid #444;margin:4px 0;">'
             else:
                 html_line += '<br>'
-            # Prepend to log area as HTML
-            current = self.log_area.toHtml()
-            # Remove <html><head>...</head><body> and </body></html> wrappers
-            if '<body>' in current:
-                body = current.split('<body>')[1].split('</body>')[0]
+            
+            # Get current HTML content
+            current_html = self.log_area.toHtml()
+            
+            # Extract body content
+            if '<body>' in current_html:
+                body_start = current_html.find('<body>') + 6
+                body_end = current_html.find('</body>')
+                if body_end == -1:
+                    body_end = len(current_html)
+                body_content = current_html[body_start:body_end]
             else:
-                body = current
-            new_html = html_line + body
+                body_content = current_html
+            
+            # Split into lines and count actual log entries (not HTML tags)
+            lines = body_content.split('<br>')
+            # Filter out empty lines and HTML-only lines
+            log_lines = [line for line in lines if line.strip() and not line.startswith('<')]
+            
+            # Add new line at the beginning
+            new_lines = [html_line] + lines
+            
+            # Limit to max_lines by removing oldest lines from the end
+            if len(new_lines) > self.max_lines:
+                new_lines = new_lines[:self.max_lines]
+            
+            # Reconstruct HTML
+            new_html = '<br>'.join(new_lines)
+            
+            # Set the new HTML content
             self.log_area.setHtml(new_html)
-            self.log_area.moveCursor(self.log_area.textCursor().Start)
-            # Limit to max_lines
-            lines = self.log_area.toPlainText().splitlines()
-            if len(lines) > self.max_lines:
-                # Remove extra lines from HTML
-                html_lines = new_html.split('<br>')[:self.max_lines]
-                self.log_area.setHtml('<br>'.join(html_lines))
+            
+            # Move cursor to top to show newest logs
+            cursor = self.log_area.textCursor()
+            cursor.movePosition(cursor.Start)
+            self.log_area.setTextCursor(cursor)
+            
         except Exception as e:
             # Fallback: append plain text and log the error
             self.log_area.append(text)
@@ -1303,6 +1335,7 @@ class DebugLogTab(QWidget):
                     f.write(f"[LOG_AREA_PREPEND ERROR] {e}\n{text}\n")
             except Exception:
                 pass
+        
         # Always write to persistent log file (plain text)
         try:
             with open(self.log_file_path, 'a') as f:
@@ -1415,12 +1448,19 @@ class MainWindow(QMainWindow):
         self.now_playing_timer.timeout.connect(self.update_now_playing_tooltip)
         self.now_playing_timer.timeout.connect(self.update_tray_menu)
         self.now_playing_timer.start(5000)  # Update every 5 seconds
-        # --- Hotkey cooldown state ---
-        self._hotkey_cooldown = False
-        self._last_hotkey_time = 0
-        self._hotkey_triggered = set()  # Track which shortcuts have triggered
+        
+        # --- Action cooldown state ---
+        self._action_cooldown = False
+        self._last_action_time = 0
+        self._action_cooldown_duration = 2.0  # 2 second cooldown between actions
+        
         # --- Hotkey edge-trigger state ---
         self._shortcut_prev_state = {"like": False, "dislike": False}
+        
+        # Add keyboard state reset timer
+        self.keyboard_reset_timer = QTimer()
+        self.keyboard_reset_timer.timeout.connect(self.reset_keyboard_state)
+        self.keyboard_reset_timer.start(30000)  # Reset every 30 seconds to prevent stuck keys
 
     def set_spotify_client(self, spotify_client):
         """Set the Spotify client and load playlists"""
@@ -1456,43 +1496,28 @@ class MainWindow(QMainWindow):
         self.setup_global_hotkeys()
 
     def setup_global_hotkeys(self):
-        """Setup global hotkey listener"""
         # Defensive: ensure attribute exists
         if not hasattr(self, 'keyboard_debug_enabled'):
             self.keyboard_debug_enabled = False
+        
+        # CRITICAL FIX: Stop existing listener before creating new one
+        if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+            try:
+                self.hotkey_listener.stop()
+                self.hotkey_listener = None
+            except Exception as e:
+                self.debug_log_tab.log(f"Error stopping old hotkey listener: {e}")
+        
+        # Clear pressed keys to prevent stuck keys
+        self.pressed_keys.clear()
+        self._shortcut_prev_state = {"like": False, "dislike": False}
+        
         try:
             def on_press(key):
                 try:
-                    key_str = None
-                    # --- Only add function key name for F1-F12, not any char/symbol ---
-                    if hasattr(key, 'vk') and hasattr(key, 'char') and key.char is None:
-                        if hasattr(key, 'vk') and 112 <= key.vk <= 123:  # F1-F12 virtual keycodes
-                            key_str = f'f{key.vk - 111}'
-                            self.pressed_keys.add(key_str)
-                            if self.keyboard_debug_enabled:
-                                self.debug_log_tab.log(f"Raw key event (press): {repr(key)}")
-                                self.debug_log_tab.log(f"Key pressed: {key_str}, Current keys: {self.pressed_keys}")
-                                self.debug_log_tab.log(f"Checking shortcuts - Pressed: {self.pressed_keys}, Like: {self.settings.get('like', DEFAULT_SHORTCUTS['like'])}, Dislike: {self.settings.get('dislike', DEFAULT_SHORTCUTS['dislike'])}")
-                            self.check_shortcuts()
-                            return
-                    if not key_str:
-                        if hasattr(key, 'char') and key.char:
-                            key_str = normalize_key(key.char.lower())
-                        elif hasattr(key, 'vk'):
-                            try:
-                                char = KeyCode.from_vk(key.vk).char
-                                if char:
-                                    key_str = normalize_key(char.lower())
-                            except Exception:
-                                pass
-                    if not key_str:
-                        s = str(key).lower().replace('key.', '')
-                        if s in ['ctrl_l', 'ctrl_r', 'ctrl', 'shift_l', 'shift_r', 'shift', 'alt_l', 'alt_r', 'alt', 'super', 'cmd', 'cmd_l', 'cmd_r']:
-                            key_str = normalize_key(s.replace('_l', '').replace('_r', ''))
-                        elif s.startswith('f') and s[1:].isdigit():
-                            key_str = normalize_key(s)
-                    if key_str:
-                        self.pressed_keys.add(key_str)
+                    key_name = key_to_name(key)
+                    if key_name:
+                        self.pressed_keys.add(key_name)
                         # --- Handle zoom in/out (Ctrl+Shift+= or Ctrl+Shift+-) ---
                         if self._is_zoom_in_shortcut():
                             self.set_font_size(self._font_size + 1)
@@ -1504,43 +1529,49 @@ class MainWindow(QMainWindow):
                             return
                         if self.keyboard_debug_enabled:
                             self.debug_log_tab.log(f"Raw key event (press): {repr(key)}")
-                            self.debug_log_tab.log(f"Key pressed: {key_str}, Current keys: {self.pressed_keys}")
+                            self.debug_log_tab.log(f"Key pressed: {key_name}, Current keys: {self.pressed_keys}")
                             self.debug_log_tab.log(f"Checking shortcuts - Pressed: {self.pressed_keys}, Like: {self.settings.get('like', DEFAULT_SHORTCUTS['like'])}, Dislike: {self.settings.get('dislike', DEFAULT_SHORTCUTS['dislike'])}")
                         self.check_shortcuts()
+                    elif self.keyboard_debug_enabled:
+                        # Log ignored keys for debugging
+                        self.debug_log_tab.log(f"Ignored key press: {repr(key)}")
                 except AttributeError as e:
                     if self.keyboard_debug_enabled:
                         self.debug_log_tab.log(f"AttributeError in on_press: {e}")
+                except Exception as e:
+                    if self.keyboard_debug_enabled:
+                        self.debug_log_tab.log(f"Unexpected error in on_press: {e}")
+            
             def on_release(key):
                 try:
-                    key_str = None
-                    if hasattr(key, 'char') and key.char:
-                        key_str = normalize_key(key.char.lower())
-                    elif hasattr(key, 'vk'):
-                        try:
-                            char = KeyCode.from_vk(key.vk).char
-                            if char:
-                                key_str = normalize_key(char.lower())
-                        except Exception:
-                            pass
-                    if not key_str:
-                        s = str(key).lower().replace('key.', '')
-                        if s in ['ctrl_l', 'ctrl_r', 'ctrl', 'shift_l', 'shift_r', 'shift', 'alt_l', 'alt_r', 'alt', 'super', 'cmd', 'cmd_l', 'cmd_r']:
-                            key_str = normalize_key(s.replace('_l', '').replace('_r', ''))
-                        elif s.startswith('f') and s[1:].isdigit():
-                            key_str = normalize_key(s)
-                    if key_str:
-                        self.pressed_keys.discard(key_str)
+                    key_name = key_to_name(key)
+                    if key_name:
+                        self.pressed_keys.discard(key_name)
+                    # Reset edge trigger state on any key release
                     self._shortcut_prev_state["like"] = False
                     self._shortcut_prev_state["dislike"] = False
                 except AttributeError as e:
                     if self.keyboard_debug_enabled:
                         self.debug_log_tab.log(f"AttributeError in on_release: {e}")
-            self.hotkey_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+                except Exception as e:
+                    if self.keyboard_debug_enabled:
+                        self.debug_log_tab.log(f"Unexpected error in on_release: {e}")
+            
+            # Create new listener with proper error handling
+            self.hotkey_listener = keyboard.Listener(
+                on_press=on_press, 
+                on_release=on_release,
+                suppress=False  # Don't suppress other applications
+            )
             self.hotkey_listener.start()
+            
             if self.keyboard_debug_enabled:
-                self.debug_log_tab.log("Global hotkeys enabled")
+                self.debug_log_tab.log("Global hotkeys enabled (new listener created)")
+                
         except Exception as e:
             self.debug_log_tab.log(f"Error setting up hotkeys: {e}")
+            # Ensure listener is None if setup fails
+            self.hotkey_listener = None
 
     def _is_zoom_in_shortcut(self):
         # Ctrl+Shift+= or Ctrl+Shift++
@@ -1602,6 +1633,12 @@ class MainWindow(QMainWindow):
 
     def like_current_song(self):
         """Like the currently playing song - add to selected playlists, remove from current playlist, and skip"""
+        # Check action cooldown
+        current_time = time.time()
+        if self._action_cooldown and (current_time - self._last_action_time) < self._action_cooldown_duration:
+            self.debug_log_tab.log(f"Action cooldown active, ignoring like request (cooldown: {self._action_cooldown_duration}s)")
+            return
+        
         if not self.spotify_client:
             self.debug_log_tab.log("Not authenticated with Spotify")
             return
@@ -1715,6 +1752,10 @@ class MainWindow(QMainWindow):
             
             self.debug_log_tab.log(f"Like action completed for: {track_name} by {artist_name}")
             
+            # Set action cooldown
+            self._action_cooldown = True
+            self._last_action_time = current_time
+            
             # Track last action for undo
             self.last_action = {
                 'type': 'like',
@@ -1730,6 +1771,12 @@ class MainWindow(QMainWindow):
 
     def dislike_current_song(self):
         """Dislike the currently playing song - remove from current playlist and skip"""
+        # Check action cooldown
+        current_time = time.time()
+        if self._action_cooldown and (current_time - self._last_action_time) < self._action_cooldown_duration:
+            self.debug_log_tab.log(f"Action cooldown active, ignoring dislike request (cooldown: {self._action_cooldown_duration}s)")
+            return
+        
         if not self.spotify_client:
             self.debug_log_tab.log("Not authenticated with Spotify")
             return
@@ -1830,6 +1877,10 @@ class MainWindow(QMainWindow):
                     self.debug_log_tab.log(f"Error skipping to next song: {error_msg}")
             
             self.debug_log_tab.log(f"Dislike action completed for: {track_name} by {artist_name}")
+            
+            # Set action cooldown
+            self._action_cooldown = True
+            self._last_action_time = current_time
             
             # Track last action for undo
             self.last_action = {
@@ -2112,10 +2163,31 @@ class MainWindow(QMainWindow):
             self.toggle_window()
 
     def quit_app(self):
-        if self.hotkey_listener:
-            self.hotkey_listener.stop()
-        if self.tray_icon:
-            self.tray_icon.hide()
+        # Proper cleanup of resources
+        try:
+            if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+                self.hotkey_listener.stop()
+                self.hotkey_listener = None
+                self.debug_log_tab.log("Hotkey listener stopped")
+        except Exception as e:
+            self.debug_log_tab.log(f"Error stopping hotkey listener: {e}")
+        
+        try:
+            if hasattr(self, 'tray_icon') and self.tray_icon:
+                self.tray_icon.hide()
+                self.tray_icon = None
+        except Exception as e:
+            self.debug_log_tab.log(f"Error hiding tray icon: {e}")
+        
+        try:
+            # Clean up PID file
+            pid_file = os.path.expanduser("~/.testerfy/testerfy.pid")
+            if os.path.exists(pid_file):
+                os.remove(pid_file)
+        except Exception as e:
+            self.debug_log_tab.log(f"Error removing PID file: {e}")
+        
+        self.debug_log_tab.log("Testerfy shutting down...")
         QApplication.quit()
 
     def closeEvent(self, event):
@@ -2161,6 +2233,88 @@ class MainWindow(QMainWindow):
             for child in widget.children():
                 if isinstance(child, QWidget):
                     self._set_widget_font(child, font)
+
+    def reset_keyboard_state(self):
+        """Reset keyboard state to prevent stuck keys and memory issues"""
+        try:
+            # Clear pressed keys
+            if hasattr(self, 'pressed_keys'):
+                self.pressed_keys.clear()
+            
+            # Reset edge trigger state
+            if hasattr(self, '_shortcut_prev_state'):
+                self._shortcut_prev_state = {"like": False, "dislike": False}
+            
+            # Log reset for debugging
+            if self.keyboard_debug_enabled:
+                self.debug_log_tab.log("Keyboard state reset (preventive maintenance)")
+                
+        except Exception as e:
+            if self.keyboard_debug_enabled:
+                self.debug_log_tab.log(f"Error in keyboard state reset: {e}")
+
+def key_to_name(key):
+    # Robust mapping of pynput key event to a unique, human-readable name
+    try:
+        # Handle special keys with virtual key codes
+        if hasattr(key, 'vk') and hasattr(key, 'char') and key.char is None:
+            # Function keys (F1-F12)
+            if 112 <= key.vk <= 123:
+                return f'f{key.vk - 111}'
+            # Numpad keys
+            if 96 <= key.vk <= 105:
+                return str(key.vk - 96)
+            # Other special keys
+            vk_map = {
+                8: 'backspace', 9: 'tab', 13: 'enter', 16: 'shift', 17: 'ctrl', 18: 'alt',
+                20: 'capslock', 27: 'esc', 32: 'space', 33: 'pageup', 34: 'pagedown', 35: 'end',
+                36: 'home', 37: 'left', 38: 'up', 39: 'right', 40: 'down', 45: 'insert', 46: 'delete',
+                91: 'super', 92: 'super', 93: 'menu', 144: 'numlock', 145: 'scrolllock',
+                186: ';', 187: '=', 188: ',', 189: '-', 190: '.', 191: '/', 192: '`',
+                219: '[', 220: '\\', 221: ']', 222: "'"
+            }
+            if key.vk in vk_map:
+                return vk_map[key.vk]
+        
+        # Handle Key objects (pynput.keyboard.Key)
+        if hasattr(key, 'name'):
+            key_name = key.name.lower()
+            # Normalize modifier keys
+            if key_name in ['ctrl_l', 'ctrl_r', 'ctrl', 'shift_l', 'shift_r', 'shift', 'alt_l', 'alt_r', 'alt', 'super', 'cmd', 'cmd_l', 'cmd_r']:
+                return normalize_key(key_name.replace('_l', '').replace('_r', ''))
+            # Handle function keys
+            if key_name.startswith('f') and key_name[1:].isdigit():
+                return key_name
+            # Handle other special keys
+            special_keys = {
+                'space': 'space', 'tab': 'tab', 'enter': 'enter', 'backspace': 'backspace',
+                'delete': 'delete', 'insert': 'insert', 'home': 'home', 'end': 'end',
+                'page_up': 'pageup', 'page_down': 'pagedown', 'up': 'up', 'down': 'down',
+                'left': 'left', 'right': 'right', 'esc': 'esc', 'escape': 'esc'
+            }
+            if key_name in special_keys:
+                return special_keys[key_name]
+            return key_name
+        
+        # Handle alphanumeric and symbol keys (KeyCode objects)
+        if hasattr(key, 'char') and key.char:
+            c = key.char.lower()
+            # Only return valid characters that we actually want to track
+            if c.isalnum() or c in SHIFTED_SYMBOL_MAP or c in SHIFTED_SYMBOL_MAP.values():
+                return c
+        
+        # Fallback: convert to string and clean up
+        s = str(key).lower().replace('key.', '')
+        # Filter out unwanted characters that might be generated by function keys
+        if s in ['_', ':', '(', ')', ';', '"', '<', '>', '?', '{', '}', '|', '\\', '`', '~']:
+            return None  # Ignore these characters
+        if s in ['ctrl_l', 'ctrl_r', 'ctrl', 'shift_l', 'shift_r', 'shift', 'alt_l', 'alt_r', 'alt', 'super', 'cmd', 'cmd_l', 'cmd_r']:
+            return normalize_key(s.replace('_l', '').replace('_r', ''))
+        if s.startswith('f') and s[1:].isdigit():
+            return s
+        return s
+    except Exception:
+        return None  # Return None for any unhandled cases
 
 def main():
     # Detach from terminal and run in background
