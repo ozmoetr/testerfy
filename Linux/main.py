@@ -500,13 +500,14 @@ class SettingsTab(QWidget):
                 return
                 
         # Set up Spotipy OAuth
+        token_cache_path = os.path.expanduser("~/.testerfy_spotify_token_cache")
         self.sp_oauth = SpotifyOAuth(
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,
             scope="user-read-private playlist-read-private playlist-modify-public playlist-modify-private user-read-playback-state user-modify-playback-state user-library-modify",
             open_browser=False,
-            cache_path=None
+            cache_path=token_cache_path  # Persistent token cache
         )
         auth_url = self.sp_oauth.get_authorize_url()
         self.log(f"Opening browser to: {auth_url}")
@@ -648,6 +649,13 @@ class SettingsTab(QWidget):
             keyring.delete_password("testerfy_spotify", "redirect_uri")
         except Exception:
             pass
+        # Remove persistent token cache file
+        try:
+            token_cache_path = os.path.expanduser("~/.testerfy_spotify_token_cache")
+            if os.path.exists(token_cache_path):
+                os.remove(token_cache_path)
+        except Exception as e:
+            logger.warning(f"Could not remove token cache file: {e}")
         # Clear input fields and checkbox
         self.client_id_input.clear()
         self.client_secret_input.clear()
