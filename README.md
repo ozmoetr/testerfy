@@ -1,6 +1,6 @@
 # Testerfy
 
-![Testerfy Logo](assets/logo.svg)
+<img src="assets/logo.svg" alt="Testerfy Logo" width="128" />
 
 Spotify controller with a lightweight web UI, plus automation for like/dislike flows.
 
