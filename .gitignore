@@ -1,7 +1,14 @@
+# OS files
+.DS_Store
 
 # Cache and debug files
 .cache
 testerfy_desktop_debug.log
 
-# macOS
-.DS_Store
+# Node artifacts
+node_modules
+dist
+
+# Env files
+.env
+.env.*
