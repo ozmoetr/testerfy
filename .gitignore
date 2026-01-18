@@ -2,3 +2,6 @@
 # Cache and debug files
 .cache
 testerfy_desktop_debug.log
+
+# macOS
+.DS_Store
