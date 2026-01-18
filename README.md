@@ -21,7 +21,7 @@ docker compose up -d --build postgres
 docker compose --profile migrate run --rm migrate
 docker compose up -d app
 ```
-Open: `http://localhost:5000`
+Open: `http://localhost:5247`
 
 ## Spotify Redirect URI
 The app expects the callback path:

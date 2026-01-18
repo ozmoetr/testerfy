@@ -36,6 +36,7 @@ docker compose up -d app
 ```
 
 The app listens on container port `5000`. You can map it to a host port via `APP_PORT` in `.env`.
+The default host port is `5247`.
 
 ## 4) Connect SWAG Reverse Proxy
 ### A) Add the app to SWAG's docker network
@@ -67,7 +68,7 @@ Rename it to:
 ```
 Set upstream to your app container name and port:
 ```
-set $upstream_app testerfy_app;
+set $upstream_app testerfy-app;
 set $upstream_port 5000;
 ```
 Reload or restart SWAG.

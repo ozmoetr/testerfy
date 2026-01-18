@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: testerfyweb-postgres-1
+    container_name: testerfy-postgres
     hostname: postgres
     env_file: .env
     environment:
@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - testerfy_db:/var/lib/postgresql/data
+      - testerfy_prod_db:/var/lib/postgresql/data
     restart: unless-stopped
     labels:
       - "net.unraid.docker.managed=false"
@@ -17,7 +17,7 @@ services:
 
   tailscale:
     image: tailscale/tailscale:latest
-    container_name: testerfy_ts
+    container_name: testerfy-tailscale
     hostname: testerfy
     env_file: .env
     environment:
@@ -25,7 +25,7 @@ services:
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "true"
     volumes:
-      - testerfy_ts:/var/lib/tailscale
+      - testerfy_prod_ts:/var/lib/tailscale
     restart: unless-stopped
     profiles:
       - tailscale
@@ -52,7 +52,7 @@ services:
     build:
       context: .
       target: runtime
-    container_name: testerfy_app
+    container_name: testerfy-app
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -62,7 +62,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       NODE_ENV: production
     ports:
-      - "5000:5000"
+      - "${APP_PORT:-5247}:5000"
     depends_on:
       - postgres
     restart: unless-stopped
@@ -71,9 +71,9 @@ services:
       - "net.unraid.docker.icon=https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Spotify_logo_without_text.svg/200px-Spotify_logo_without_text.svg.png"
 
 volumes:
-  testerfy_db:
-  testerfy_ts:
+  testerfy_prod_db:
+  testerfy_prod_ts:
 
 networks:
   default:
-    name: testerfyweb_default
+    name: testerfy_prod_default
