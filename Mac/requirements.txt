@@ -1,9 +1,0 @@
-PyQt5>=5.15.0
-PyQt5-Qt5>=5.15.0
-PyQt5-sip>=12.8.0
-PyQt5-QtSvg>=5.15.0
-pynput>=1.7.0
-keyring>=23.0.0
-flask>=2.0.0
-spotipy>=2.19.0
-pyinstaller>=5.0.0 
