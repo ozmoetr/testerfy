@@ -388,7 +388,12 @@ export async function registerRoutes(
 
   app.post(api.player.dislike.path, requireAuth, async (req, res) => {
     try {
-      const playbackState = await spotifyFetch(req.session.userId!, "/me/player/currently-playing");
+      // `/me/player` tends to include richer context than `/me/player/currently-playing` on some devices.
+      // We still fall back to `currently-playing` in case `/me/player` returns no item.
+      const playerState = await spotifyFetch(req.session.userId!, "/me/player");
+      const playbackState = playerState?.item
+        ? playerState
+        : await spotifyFetch(req.session.userId!, "/me/player/currently-playing");
       
       if (!playbackState?.item) {
         return res.status(400).json({ message: "No track currently playing" });
@@ -396,16 +401,44 @@ export async function registerRoutes(
 
       const trackUri = playbackState.item.uri;
       const contextUri = playbackState.context?.uri;
+      const trackId = playbackState.item.id;
+      const contextType = playbackState.context?.type;
 
-      if (contextUri && contextUri.includes("playlist")) {
+      let removedFromSource = false;
+      let removalTarget: "playlist" | "library" | null = null;
+      let removalError: string | undefined;
+
+      // Remove from the current *source* when possible.
+      // - playlist: remove track from playlist
+      // - collection (Liked Songs): remove track from library
+      if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
         const playlistId = contextUri.split(":").pop();
-        try {
-          await spotifyFetch(req.session.userId!, `/playlists/${playlistId}/tracks`, {
-            method: "DELETE",
-            body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
-          });
-        } catch (err) {
-          console.error("Failed to remove from current playlist:", err);
+        if (playlistId) {
+          try {
+            await spotifyFetch(req.session.userId!, `/playlists/${playlistId}/tracks`, {
+              method: "DELETE",
+              body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
+            });
+            removedFromSource = true;
+            removalTarget = "playlist";
+          } catch (err) {
+            removalError = err instanceof Error ? err.message : String(err);
+            console.error("Failed to remove from current playlist:", err);
+          }
+        }
+      } else if (contextUri && (contextType === "collection" || contextUri.includes(":collection"))) {
+        // "Liked Songs" behaves like a playlist in the Spotify UI, but is a library collection in the API.
+        if (trackId) {
+          try {
+            await spotifyFetch(req.session.userId!, `/me/tracks?ids=${encodeURIComponent(trackId)}`, {
+              method: "DELETE",
+            });
+            removedFromSource = true;
+            removalTarget = "library";
+          } catch (err) {
+            removalError = err instanceof Error ? err.message : String(err);
+            console.error("Failed to remove from library:", err);
+          }
         }
       }
 
@@ -437,7 +470,14 @@ export async function registerRoutes(
         sourcePlaylistName,
       });
 
-      res.json({ success: true });
+      // Keep backwards-compat `success`, but include useful debug fields for troubleshooting.
+      res.json({
+        success: true,
+        removedFromSource,
+        removalTarget,
+        removalError,
+        sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+      });
     } catch (err) {
       console.error("Dislike action error:", err);
       res.status(500).json({ message: "Failed to process dislike action" });

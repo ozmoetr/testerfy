@@ -68,7 +68,7 @@ Rename it to:
 ```
 Set upstream to your app container name and port:
 ```
-set $upstream_app testerfy-app;
+set $upstream_app app;
 set $upstream_port 5000;
 ```
 Reload or restart SWAG.
@@ -82,9 +82,9 @@ If you want to avoid public exposure:
 
 ### Enable the Tailscale sidecar
 1) Create a reusable auth key in Tailscale and add it to `.env` as `TS_AUTHKEY`.
-2) Start the Tailscale profile (this runs `tailscale` + `app_tailscale`):
+2) Start the Tailscale profile (this runs `tailscale`):
 ```
-docker compose --profile tailscale up -d tailscale app_tailscale
+docker compose --profile tailscale up -d tailscale
 ```
 3) Use the Tailscale MagicDNS hostname (from the Tailscale admin console) as your app URL.
 Your app will be reachable at `http://testerfy:5000` on your tailnet, and the MagicDNS name externally.

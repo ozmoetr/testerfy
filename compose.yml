@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: testerfy-postgres
     hostname: postgres
     env_file: .env
     environment:
@@ -17,7 +16,6 @@ services:
 
   tailscale:
     image: tailscale/tailscale:latest
-    container_name: testerfy-tailscale
     hostname: testerfy
     env_file: .env
     environment:
@@ -52,7 +50,6 @@ services:
     build:
       context: .
       target: runtime
-    container_name: testerfy-app
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -73,7 +70,3 @@ services:
 volumes:
   testerfy_prod_db:
   testerfy_prod_ts:
-
-networks:
-  default:
-    name: testerfy_prod_default

@@ -145,7 +145,16 @@ export const api = {
       method: 'POST' as const,
       path: '/api/player/dislike',
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: z.object({
+          success: z.boolean(),
+          removedFromSource: z.boolean().optional(),
+          removalTarget: z.enum(["playlist", "library"]).nullable().optional(),
+          removalError: z.string().optional(),
+          sourceContext: z.object({
+            type: z.string(),
+            uri: z.string().nullable(),
+          }).nullable().optional(),
+        }),
         401: errorSchemas.unauthorized,
       },
     },
