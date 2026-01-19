@@ -35,8 +35,7 @@ docker compose --profile migrate run --rm migrate
 docker compose up -d app
 ```
 
-The app listens on container port `5000`. You can map it to a host port via `APP_PORT` in `.env`.
-The default host port is `5247`.
+The app listens on container port `5000` and is mapped to host port `5247` (so it can run side-by-side with a test instance on `5000`).
 
 ## 4) Connect SWAG Reverse Proxy
 ### A) Add the app to SWAG's docker network

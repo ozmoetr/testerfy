@@ -59,7 +59,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       NODE_ENV: production
     ports:
-      - "${APP_PORT:-5247}:5000"
+      # Keep prod on a stable host port so it can run side-by-side with a test instance on 5000.
+      - "5247:5000"
     depends_on:
       - postgres
     restart: unless-stopped
