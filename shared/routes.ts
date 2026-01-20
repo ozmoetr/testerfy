@@ -137,7 +137,18 @@ export const api = {
       method: 'POST' as const,
       path: '/api/player/like',
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: z.object({
+          success: z.boolean(),
+          addedToTargets: z.number().optional(),
+          targetPlaylistsCount: z.number().optional(),
+          addErrors: z.array(z.string()).optional(),
+          removedFromSource: z.boolean().optional(),
+          removalError: z.string().optional(),
+          sourceContext: z.object({
+            type: z.string(),
+            uri: z.string().nullable(),
+          }).nullable().optional(),
+        }),
         401: errorSchemas.unauthorized,
       },
     },

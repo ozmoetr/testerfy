@@ -316,7 +316,12 @@ export async function registerRoutes(
 
   app.post(api.player.like.path, requireAuth, async (req, res) => {
     try {
-      const playbackState = await spotifyFetch(req.session.userId!, "/me/player/currently-playing");
+      // `/me/player` tends to include richer context than `/me/player/currently-playing` on some devices.
+      // We still fall back to `currently-playing` in case `/me/player` returns no item.
+      const playerState = await spotifyFetch(req.session.userId!, "/me/player");
+      const playbackState = playerState?.item
+        ? playerState
+        : await spotifyFetch(req.session.userId!, "/me/player/currently-playing");
       
       if (!playbackState?.item) {
         return res.status(400).json({ message: "No track currently playing" });
@@ -325,8 +330,14 @@ export async function registerRoutes(
       const trackUri = playbackState.item.uri;
       const trackId = playbackState.item.id;
       const contextUri = playbackState.context?.uri;
+      const contextType = playbackState.context?.type;
 
       const targetPlaylists = await storage.getTargetPlaylists(req.session.userId!);
+
+      let addedToTargets = 0;
+      const addErrors: string[] = [];
+      let removedFromSource = false;
+      let removalError: string | undefined;
 
       for (const target of targetPlaylists) {
         try {
@@ -334,20 +345,24 @@ export async function registerRoutes(
             method: "POST",
             body: JSON.stringify({ uris: [trackUri] }),
           });
+          addedToTargets += 1;
         } catch (err) {
           console.error(`Failed to add to playlist ${target.playlistId}:`, err);
+          addErrors.push(err instanceof Error ? err.message : String(err));
         }
       }
 
-      if (contextUri && contextUri.includes("playlist")) {
+      if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
         const playlistId = contextUri.split(":").pop();
         try {
           await spotifyFetch(req.session.userId!, `/playlists/${playlistId}/tracks`, {
             method: "DELETE",
             body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
           });
+          removedFromSource = true;
         } catch (err) {
           console.error("Failed to remove from current playlist:", err);
+          removalError = err instanceof Error ? err.message : String(err);
         }
       }
 
@@ -379,7 +394,15 @@ export async function registerRoutes(
         sourcePlaylistName,
       });
 
-      res.json({ success: true });
+      res.json({
+        success: true,
+        addedToTargets,
+        targetPlaylistsCount: targetPlaylists.length,
+        addErrors: addErrors.length ? addErrors.slice(0, 3) : undefined,
+        removedFromSource,
+        removalError,
+        sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+      });
     } catch (err) {
       console.error("Like action error:", err);
       res.status(500).json({ message: "Failed to process like action" });
