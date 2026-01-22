@@ -28,21 +28,33 @@ export default function Stats() {
     queryKey: ["/api/auth/me"],
   });
 
-  const { data: stats } = useQuery<StatsSummary>({
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+    refetch: refetchStats,
+  } = useQuery<StatsSummary>({
     queryKey: ["/api/stats/summary"],
     enabled: !!user,
     // Default queryClient has staleTime=Infinity; stats should always reflect recent actions.
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchInterval: 15000,
   });
 
-  const { data: history } = useQuery<SongActionHistory[]>({
+  const {
+    data: history,
+    isLoading: historyLoading,
+    isError: historyError,
+    refetch: refetchHistory,
+  } = useQuery<SongActionHistory[]>({
     queryKey: ["/api/stats/history"],
     enabled: !!user,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchInterval: 15000,
   });
 
   if (userLoading) {
@@ -82,6 +94,25 @@ export default function Stats() {
       </header>
 
       <main className="flex-1 p-4 sm:p-8 space-y-6 max-w-2xl mx-auto w-full">
+        {(statsLoading || historyLoading) && (
+          <div className="text-sm text-muted-foreground">Refreshing…</div>
+        )}
+        {(statsError || historyError) && (
+          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+            <span>Failed to load stats. This usually means the server/DB didn’t log actions or hasn’t been rebuilt.</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                refetchStats();
+                refetchHistory();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-2">

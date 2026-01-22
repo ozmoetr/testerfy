@@ -377,30 +377,36 @@ export async function registerRoutes(
       const addErrors: string[] = [];
       let removedFromSource = false;
       let removalError: string | undefined;
+      let logError: string | undefined;
 
       const guard = await getGuardDecision(req.session.userId!, contextUri, contextType);
 
       // If guard is enabled and blocked, still skip but do not touch playlists.
       if (guard.guardBlocked) {
         try {
-          await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+          await spotifyFetchFast(req.session.userId!, "/me/player/next", { method: "POST" });
         } catch (err) {
           console.error("Failed to skip:", err);
         }
 
-        await storage.addSongAction({
-          userId: req.session.userId!,
-          trackId: playbackState.item.id,
-          trackUri,
-          trackName: playbackState.item.name,
-          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
-          albumName: playbackState.item.album?.name,
-          albumArt: playbackState.item.album?.images?.[0]?.url,
-          action: "like",
-          sourcePlaylistId: guard.currentPlaylistId ?? undefined,
-          sourcePlaylistName: undefined,
-          guardBlocked: true,
-        });
+        try {
+          await storage.addSongAction({
+            userId: req.session.userId!,
+            trackId: playbackState.item.id,
+            trackUri,
+            trackName: playbackState.item.name,
+            artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+            albumName: playbackState.item.album?.name,
+            albumArt: playbackState.item.album?.images?.[0]?.url,
+            action: "like",
+            sourcePlaylistId: guard.currentPlaylistId ?? undefined,
+            sourcePlaylistName: undefined,
+            guardBlocked: true,
+          });
+        } catch (err) {
+          logError = err instanceof Error ? err.message : String(err);
+          console.error("Failed to log song action:", err);
+        }
 
         return res.json({
           success: true,
@@ -412,41 +418,45 @@ export async function registerRoutes(
           guardMessage: guard.guardMessage,
           currentPlaylistId: guard.currentPlaylistId,
           sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+          logError,
         });
       }
 
-      for (const target of targetPlaylists) {
-        try {
-          await spotifyFetch(req.session.userId!, `/playlists/${target.playlistId}/tracks`, {
-            method: "POST",
-            body: JSON.stringify({ uris: [trackUri] }),
-          });
-          addedToTargets += 1;
-        } catch (err) {
-          console.error(`Failed to add to playlist ${target.playlistId}:`, err);
-          addErrors.push(err instanceof Error ? err.message : String(err));
-        }
-      }
-
-      if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
-        const playlistId = contextUri.split(":").pop();
-        try {
-          await spotifyFetch(req.session.userId!, `/playlists/${playlistId}/tracks`, {
-            method: "DELETE",
-            body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
-          });
-          removedFromSource = true;
-        } catch (err) {
-          console.error("Failed to remove from current playlist:", err);
-          removalError = err instanceof Error ? err.message : String(err);
-        }
-      }
-
+      // Fast-first: skip immediately; playlist edits are best-effort and should not block the response.
       try {
-        await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+        await spotifyFetchFast(req.session.userId!, "/me/player/next", { method: "POST" });
       } catch (err) {
         console.error("Failed to skip:", err);
       }
+
+      setImmediate(async () => {
+        // Add to targets (best-effort; no waiting on rate limits).
+        for (const target of targetPlaylists) {
+          try {
+            await spotifyFetchFast(req.session.userId!, `/playlists/${target.playlistId}/tracks`, {
+              method: "POST",
+              body: JSON.stringify({ uris: [trackUri] }),
+            });
+          } catch (err) {
+            console.error(`Failed to add to playlist ${target.playlistId}:`, err);
+          }
+        }
+
+        // Remove from current source playlist (best-effort).
+        if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
+          const playlistId = contextUri.split(":").pop();
+          if (playlistId) {
+            try {
+              await spotifyFetchFast(req.session.userId!, `/playlists/${playlistId}/tracks`, {
+                method: "DELETE",
+                body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
+              });
+            } catch (err) {
+              console.error("Failed to remove from current playlist:", err);
+            }
+          }
+        }
+      });
 
       // Log the action
       let sourcePlaylistName: string | undefined;
@@ -459,22 +469,28 @@ export async function registerRoutes(
         } catch {}
       }
       
-      await storage.addSongAction({
-        userId: req.session.userId!,
-        trackId: playbackState.item.id,
-        trackUri,
-        trackName: playbackState.item.name,
-        artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
-        albumName: playbackState.item.album?.name,
-        albumArt: playbackState.item.album?.images?.[0]?.url,
-        action: 'like',
-        sourcePlaylistId: contextUri?.split(":").pop(),
-        sourcePlaylistName,
-        guardBlocked: false,
-      });
+      try {
+        await storage.addSongAction({
+          userId: req.session.userId!,
+          trackId: playbackState.item.id,
+          trackUri,
+          trackName: playbackState.item.name,
+          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+          albumName: playbackState.item.album?.name,
+          albumArt: playbackState.item.album?.images?.[0]?.url,
+          action: 'like',
+          sourcePlaylistId: contextUri?.split(":").pop(),
+          sourcePlaylistName,
+          guardBlocked: false,
+        });
+      } catch (err) {
+        logError = err instanceof Error ? err.message : String(err);
+        console.error("Failed to log song action:", err);
+      }
 
       res.json({
         success: true,
+        // Playlist ops are now best-effort async (exporter/script will reconcile).
         addedToTargets,
         targetPlaylistsCount: targetPlaylists.length,
         addErrors: addErrors.length ? addErrors.slice(0, 3) : undefined,
@@ -484,6 +500,7 @@ export async function registerRoutes(
         guardBlocked: false,
         currentPlaylistId: guard.currentPlaylistId,
         sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+        logError,
       });
     } catch (err) {
       console.error("Like action error:", err);
@@ -512,29 +529,35 @@ export async function registerRoutes(
       let removedFromSource = false;
       let removalTarget: "playlist" | "library" | null = null;
       let removalError: string | undefined;
+      let logError: string | undefined;
 
       const guard = await getGuardDecision(req.session.userId!, contextUri, contextType);
 
       if (guard.guardBlocked) {
         try {
-          await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+          await spotifyFetchFast(req.session.userId!, "/me/player/next", { method: "POST" });
         } catch (err) {
           console.error("Failed to skip:", err);
         }
 
-        await storage.addSongAction({
-          userId: req.session.userId!,
-          trackId: playbackState.item.id,
-          trackUri,
-          trackName: playbackState.item.name,
-          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
-          albumName: playbackState.item.album?.name,
-          albumArt: playbackState.item.album?.images?.[0]?.url,
-          action: "dislike",
-          sourcePlaylistId: guard.currentPlaylistId ?? undefined,
-          sourcePlaylistName: undefined,
-          guardBlocked: true,
-        });
+        try {
+          await storage.addSongAction({
+            userId: req.session.userId!,
+            trackId: playbackState.item.id,
+            trackUri,
+            trackName: playbackState.item.name,
+            artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+            albumName: playbackState.item.album?.name,
+            albumArt: playbackState.item.album?.images?.[0]?.url,
+            action: "dislike",
+            sourcePlaylistId: guard.currentPlaylistId ?? undefined,
+            sourcePlaylistName: undefined,
+            guardBlocked: true,
+          });
+        } catch (err) {
+          logError = err instanceof Error ? err.message : String(err);
+          console.error("Failed to log song action:", err);
+        }
 
         return res.json({
           success: true,
@@ -545,48 +568,46 @@ export async function registerRoutes(
           guardMessage: guard.guardMessage,
           currentPlaylistId: guard.currentPlaylistId,
           sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+          logError,
         });
       }
 
-      // Remove from the current *source* when possible.
-      // - playlist: remove track from playlist
-      // - collection (Liked Songs): remove track from library
-      if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
-        const playlistId = contextUri.split(":").pop();
-        if (playlistId) {
-          try {
-            await spotifyFetch(req.session.userId!, `/playlists/${playlistId}/tracks`, {
-              method: "DELETE",
-              body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
-            });
-            removedFromSource = true;
-            removalTarget = "playlist";
-          } catch (err) {
-            removalError = err instanceof Error ? err.message : String(err);
-            console.error("Failed to remove from current playlist:", err);
-          }
-        }
-      } else if (contextUri && (contextType === "collection" || contextUri.includes(":collection"))) {
-        // "Liked Songs" behaves like a playlist in the Spotify UI, but is a library collection in the API.
-        if (trackId) {
-          try {
-            await spotifyFetch(req.session.userId!, `/me/tracks?ids=${encodeURIComponent(trackId)}`, {
-              method: "DELETE",
-            });
-            removedFromSource = true;
-            removalTarget = "library";
-          } catch (err) {
-            removalError = err instanceof Error ? err.message : String(err);
-            console.error("Failed to remove from library:", err);
-          }
-        }
-      }
-
+      // Fast-first: skip immediately; removals are best-effort and should not block the response.
       try {
-        await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+        await spotifyFetchFast(req.session.userId!, "/me/player/next", { method: "POST" });
       } catch (err) {
         console.error("Failed to skip:", err);
       }
+
+      setImmediate(async () => {
+        // Remove from the current *source* when possible (best-effort).
+        // - playlist: remove track from playlist
+        // - collection (Liked Songs): remove track from library
+        if (contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))) {
+          const playlistId = contextUri.split(":").pop();
+          if (playlistId) {
+            try {
+              await spotifyFetchFast(req.session.userId!, `/playlists/${playlistId}/tracks`, {
+                method: "DELETE",
+                body: JSON.stringify({ tracks: [{ uri: trackUri }] }),
+              });
+            } catch (err) {
+              console.error("Failed to remove from current playlist:", err);
+            }
+          }
+        } else if (contextUri && (contextType === "collection" || contextUri.includes(":collection"))) {
+          // "Liked Songs" behaves like a playlist in the Spotify UI, but is a library collection in the API.
+          if (trackId) {
+            try {
+              await spotifyFetchFast(req.session.userId!, `/me/tracks?ids=${encodeURIComponent(trackId)}`, {
+                method: "DELETE",
+              });
+            } catch (err) {
+              console.error("Failed to remove from library:", err);
+            }
+          }
+        }
+      });
 
       // Log the action
       let sourcePlaylistName: string | undefined;
@@ -599,23 +620,29 @@ export async function registerRoutes(
         } catch {}
       }
       
-      await storage.addSongAction({
-        userId: req.session.userId!,
-        trackId: playbackState.item.id,
-        trackUri,
-        trackName: playbackState.item.name,
-        artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
-        albumName: playbackState.item.album?.name,
-        albumArt: playbackState.item.album?.images?.[0]?.url,
-        action: 'dislike',
-        sourcePlaylistId: contextUri?.split(":").pop(),
-        sourcePlaylistName,
-        guardBlocked: false,
-      });
+      try {
+        await storage.addSongAction({
+          userId: req.session.userId!,
+          trackId: playbackState.item.id,
+          trackUri,
+          trackName: playbackState.item.name,
+          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+          albumName: playbackState.item.album?.name,
+          albumArt: playbackState.item.album?.images?.[0]?.url,
+          action: 'dislike',
+          sourcePlaylistId: contextUri?.split(":").pop(),
+          sourcePlaylistName,
+          guardBlocked: false,
+        });
+      } catch (err) {
+        logError = err instanceof Error ? err.message : String(err);
+        console.error("Failed to log song action:", err);
+      }
 
       // Keep backwards-compat `success`, but include useful debug fields for troubleshooting.
       res.json({
         success: true,
+        // Removals are now best-effort async; exporter/script will reconcile.
         removedFromSource,
         removalTarget,
         removalError,
@@ -623,6 +650,7 @@ export async function registerRoutes(
         guardBlocked: false,
         currentPlaylistId: guard.currentPlaylistId,
         sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+        logError,
       });
     } catch (err) {
       console.error("Dislike action error:", err);
