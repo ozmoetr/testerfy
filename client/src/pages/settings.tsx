@@ -155,6 +155,82 @@ export default function Settings() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              <ListMusic className="h-5 w-5" />
+              Target Playlists
+            </CardTitle>
+            <CardDescription>
+              When you like a song, it will be saved to these playlists
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Current targets</div>
+              {targetsLoading ? (
+                <div className="text-muted-foreground">Loading...</div>
+              ) : targetsError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load target playlists.
+                </div>
+              ) : targetPlaylists?.length === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  None selected yet.
+                </div>
+              ) : (
+                targetPlaylists?.map(target => (
+                  <div
+                    key={target.id}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                    data-testid={`target-playlist-${target.id}`}
+                  >
+                    <span className="font-medium truncate flex-1">{target.playlistName}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeMutation.mutate(target.id)}
+                      disabled={removeMutation.isPending}
+                      data-testid={`button-remove-${target.id}`}
+                      aria-label={`Remove ${target.playlistName}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 border-t space-y-2">
+              <div className="text-sm font-medium">Add target playlists</div>
+              {playlistsLoading ? (
+                <div className="text-muted-foreground">Loading your playlists...</div>
+              ) : playlistsError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load your Spotify playlists.
+                </div>
+              ) : availablePlaylists.length === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  {playlists?.length === 0
+                    ? "No playlists found in your Spotify account."
+                    : "All your playlists are already added as targets."}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-2">
+                  {availablePlaylists.map((playlist) =>
+                    renderPlaylistRow(
+                      playlist,
+                      () => addMutation.mutate(playlist),
+                      addMutation.isPending,
+                      "targets"
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5" />
               Approved Source Playlists (Safeguard)
             </CardTitle>
@@ -221,82 +297,6 @@ export default function Settings() {
                       () => addApprovedMutation.mutate(playlist),
                       addApprovedMutation.isPending,
                       "approve"
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ListMusic className="h-5 w-5" />
-              Target Playlists
-            </CardTitle>
-            <CardDescription>
-              When you like a song, it will be saved to these playlists
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Current targets</div>
-              {targetsLoading ? (
-                <div className="text-muted-foreground">Loading...</div>
-              ) : targetsError ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  Failed to load target playlists.
-                </div>
-              ) : targetPlaylists?.length === 0 ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  None selected yet.
-                </div>
-              ) : (
-                targetPlaylists?.map(target => (
-                  <div
-                    key={target.id}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                    data-testid={`target-playlist-${target.id}`}
-                  >
-                    <span className="font-medium truncate flex-1">{target.playlistName}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeMutation.mutate(target.id)}
-                      disabled={removeMutation.isPending}
-                      data-testid={`button-remove-${target.id}`}
-                      aria-label={`Remove ${target.playlistName}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-2 border-t space-y-2">
-              <div className="text-sm font-medium">Add target playlists</div>
-              {playlistsLoading ? (
-                <div className="text-muted-foreground">Loading your playlists...</div>
-              ) : playlistsError ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  Failed to load your Spotify playlists.
-                </div>
-              ) : availablePlaylists.length === 0 ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  {playlists?.length === 0
-                    ? "No playlists found in your Spotify account."
-                    : "All your playlists are already added as targets."}
-                </div>
-              ) : (
-                <div className="max-h-72 overflow-y-auto space-y-2">
-                  {availablePlaylists.map((playlist) =>
-                    renderPlaylistRow(
-                      playlist,
-                      () => addMutation.mutate(playlist),
-                      addMutation.isPending,
-                      "targets"
                     )
                   )}
                 </div>
