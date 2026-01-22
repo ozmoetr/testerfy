@@ -227,9 +227,10 @@
   animation: swipe-nudge 1.2s ease-in-out;
 }
 
-/* Prevent all scrolling on mobile for swipe-friendly experience */
+/* Prevent scrolling only when Home enables swipe-lock (do NOT block Settings/Stats scrolling). */
 @media (max-width: 640px) {
-  html, body {
+  html.testerfy-scroll-lock,
+  body.testerfy-scroll-lock {
     overflow: hidden;
     position: fixed;
     width: 100%;

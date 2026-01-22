@@ -145,6 +145,22 @@ export default function Home() {
     return () => document.removeEventListener("visibilitychange", updateVisibility);
   }, []);
 
+  // Only Home should disable scrolling on small mobile screens (for swipe UX).
+  // Settings/Stats must remain scrollable.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const shouldLock = window.matchMedia("(max-width: 640px)").matches && isMobile;
+    if (shouldLock) {
+      html.classList.add("testerfy-scroll-lock");
+      body.classList.add("testerfy-scroll-lock");
+    }
+    return () => {
+      html.classList.remove("testerfy-scroll-lock");
+      body.classList.remove("testerfy-scroll-lock");
+    };
+  }, [isMobile]);
+
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile('ontouchstart' in window || navigator.maxTouchPoints > 0);
