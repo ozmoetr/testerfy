@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { Buffer } from "buffer";
 
 const SPOTIFY_API_URL = "https://api.spotify.com/v1";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -17,13 +18,9 @@ function parseRetryAfterSeconds(value: string | null): number | null {
   return n;
 }
 
-async function refreshTokenIfNeeded(userId: number): Promise<string | null> {
+async function refreshToken(userId: number): Promise<string | null> {
   const user = await storage.getUserById(userId);
   if (!user || !user.refreshToken) return null;
-
-  if (user.tokenExpiry && new Date(user.tokenExpiry) > new Date()) {
-    return user.accessToken;
-  }
 
   if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) return null;
 
@@ -53,6 +50,17 @@ async function refreshTokenIfNeeded(userId: number): Promise<string | null> {
   return data.access_token;
 }
 
+async function getAccessToken(userId: number): Promise<string | null> {
+  const user = await storage.getUserById(userId);
+  if (!user || !user.refreshToken) return null;
+
+  if (user.tokenExpiry && new Date(user.tokenExpiry) > new Date() && user.accessToken) {
+    return user.accessToken;
+  }
+
+  return await refreshToken(userId);
+}
+
 type CacheEntry<T> = { value: T; expiresAtMs: number };
 
 const playlistsCache = new Map<number, CacheEntry<any>>();
@@ -62,11 +70,26 @@ const playlistNameCache = new Map<string, CacheEntry<string | null>>();
 const playlistNameInFlight = new Map<string, Promise<string | null>>();
 
 export async function spotifyFetch(userId: number, endpoint: string, options: RequestInit = {}) {
-  const accessToken = await refreshTokenIfNeeded(userId);
+  // For user-triggered actions we can wait a bit on rate limits, but we should not hang forever.
+  // Polling endpoints should call `spotifyFetchFast` instead.
+  const maxRetries = 2;
+  const maxTotalWaitMs = 8000;
+  return await spotifyFetchInternal(userId, endpoint, options, { maxRetries, maxTotalWaitMs });
+}
+
+async function spotifyFetchInternal(
+  userId: number,
+  endpoint: string,
+  options: RequestInit,
+  policy: { maxRetries: number; maxTotalWaitMs: number }
+) {
+  let accessToken = await getAccessToken(userId);
   if (!accessToken) throw new Error("No valid access token");
 
-  const maxRetries = 3;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  let totalWaitMs = 0;
+  let didForceRefresh = false;
+
+  for (let attempt = 0; attempt <= policy.maxRetries; attempt++) {
     const response = await fetch(`${SPOTIFY_API_URL}${endpoint}`, {
       ...options,
       headers: {
@@ -78,11 +101,26 @@ export async function spotifyFetch(userId: number, endpoint: string, options: Re
 
     if (response.status === 204) return null;
 
-    // Respect Spotify rate-limits by waiting Retry-After and retrying a few times.
-    if (response.status === 429 && attempt < maxRetries) {
+    // Sometimes tokens get invalidated early; refresh once and retry.
+    if (response.status === 401 && !didForceRefresh) {
+      const refreshed = await refreshToken(userId);
+      if (refreshed) {
+        accessToken = refreshed;
+        didForceRefresh = true;
+        continue;
+      }
+    }
+
+    // Respect Spotify rate-limits by waiting Retry-After and retrying a few times,
+    // but never block longer than maxTotalWaitMs.
+    if (response.status === 429 && attempt < policy.maxRetries && policy.maxTotalWaitMs > 0) {
       const retryAfter = parseRetryAfterSeconds(response.headers.get("retry-after")) ?? 1;
-      const waitMs = Math.min(30_000, retryAfter * 1000 + Math.floor(Math.random() * 250));
+      const proposedWaitMs = retryAfter * 1000 + Math.floor(Math.random() * 250);
+      const remainingWaitMs = Math.max(0, policy.maxTotalWaitMs - totalWaitMs);
+      const waitMs = Math.min(5000, proposedWaitMs, remainingWaitMs);
+      if (waitMs <= 0) break;
       await sleep(waitMs);
+      totalWaitMs += waitMs;
       continue;
     }
 
@@ -97,6 +135,13 @@ export async function spotifyFetch(userId: number, endpoint: string, options: Re
 
     return response.json();
   }
+
+  throw new Error("Spotify API error: request aborted due to rate limiting");
+}
+
+export async function spotifyFetchFast(userId: number, endpoint: string, options: RequestInit = {}) {
+  // For polling/UX reads: do not wait on 429. If we’re rate-limited, fail fast and let callers use stale cache.
+  return await spotifyFetchInternal(userId, endpoint, options, { maxRetries: 0, maxTotalWaitMs: 0 });
 }
 
 export async function getUserPlaylistsCached(userId: number) {
@@ -108,10 +153,16 @@ export async function getUserPlaylistsCached(userId: number) {
   if (inFlight) return await inFlight;
 
   const p = (async () => {
-    const data = await spotifyFetch(userId, "/me/playlists?limit=50");
-    const items = data?.items ?? [];
-    playlistsCache.set(userId, { value: items, expiresAtMs: now + 5 * 60 * 1000 });
-    return items;
+    try {
+      const data = await spotifyFetchFast(userId, "/me/playlists?limit=50");
+      const items = data?.items ?? [];
+      playlistsCache.set(userId, { value: items, expiresAtMs: now + 5 * 60 * 1000 });
+      return items;
+    } catch (err) {
+      // If Spotify is rate-limiting, serve stale cache (even if expired) to keep UI responsive.
+      if (cached) return cached.value;
+      throw err;
+    }
   })().finally(() => {
     playlistsInFlight.delete(userId);
   });
@@ -130,10 +181,16 @@ export async function getPlaylistNameCached(userId: number, playlistId: string) 
   if (inFlight) return await inFlight;
 
   const p = (async () => {
-    const playlist = await spotifyFetch(userId, `/playlists/${playlistId}?fields=name`);
-    const name = (playlist as any)?.name ?? null;
-    playlistNameCache.set(key, { value: name, expiresAtMs: now + 10 * 60 * 1000 });
-    return name;
+    try {
+      const playlist = await spotifyFetchFast(userId, `/playlists/${playlistId}?fields=name`);
+      const name = (playlist as any)?.name ?? null;
+      playlistNameCache.set(key, { value: name, expiresAtMs: now + 10 * 60 * 1000 });
+      return name;
+    } catch (err) {
+      // If we’re rate-limited (or Spotify transiently fails), don’t block the main response.
+      if (cached) return cached.value;
+      return null;
+    }
   })().finally(() => {
     playlistNameInFlight.delete(key);
   });

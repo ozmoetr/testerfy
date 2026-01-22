@@ -6,7 +6,7 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { api, buildUrl } from "@shared/routes";
 import { pool } from "./db";
-import { spotifyFetch, getUserPlaylistsCached, getPlaylistNameCached } from "./spotify";
+import { spotifyFetch, spotifyFetchFast, getUserPlaylistsCached, getPlaylistNameCached } from "./spotify";
 
 // Build the redirect URI from the current domain
 function getRedirectUri(): string {
@@ -332,7 +332,7 @@ export async function registerRoutes(
 
   app.get(api.player.current.path, requireAuth, async (req, res) => {
     try {
-      const data = await spotifyFetch(req.session.userId!, "/me/player/currently-playing");
+      const data = await spotifyFetchFast(req.session.userId!, "/me/player/currently-playing");
       
       if (data?.context?.uri && data.context.type === "playlist") {
         const playlistId = data.context.uri.split(":").pop();
