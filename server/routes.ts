@@ -177,7 +177,8 @@ export async function registerRoutes(
   const PgSession = connectPgSimple(session);
   const sessionStore =
     process.env.DATABASE_URL
-      ? new PgSession({ pool, tableName: "testerfy_sessions", createTableIfMissing: true })
+      // Table is managed via Drizzle (`shared/schema.ts`) + `drizzle-kit push`.
+      ? new PgSession({ pool, tableName: "testerfy_sessions", createTableIfMissing: false })
       : undefined;
 
   app.use(

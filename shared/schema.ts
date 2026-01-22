@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, serial, integer, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, timestamp, boolean, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -16,6 +16,14 @@ export const targetPlaylists = pgTable("target_playlists", {
   userId: integer("user_id").references(() => users.id).notNull(),
   playlistId: text("playlist_id").notNull(),
   playlistName: text("playlist_name").notNull(),
+});
+
+// Session table for `connect-pg-simple` (Express sessions).
+// Keeping this in the Drizzle schema prevents `drizzle-kit push` from proposing to drop it.
+export const testerfySessions = pgTable("testerfy_sessions", {
+  sid: varchar("sid", { length: 255 }).primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire", { withTimezone: false }).notNull(),
 });
 
 // Optional safety guard: only allow playlist modifications when playback is from one of these playlists.

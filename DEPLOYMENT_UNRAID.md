@@ -27,8 +27,15 @@ Edit `.env` and set:
 - `SESSION_SECRET` (generate with `openssl rand -hex 32`)
 - Postgres creds (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`)
 
+**Important (Docker Compose warning fix):**
+If your `SESSION_SECRET` contains `$`, Docker Compose will try to interpolate it and you’ll see warnings like:
+`The "XYZ" variable is not set. Defaulting to a blank string.`
+
+Fix: use a `$`-free secret (recommended) or escape `$` as `$$` in `.env`.
+
 ## 3) Build and Start with Docker Compose
 From the repo root:
+
 ```
 docker compose up -d --build postgres
 docker compose --profile migrate run --rm migrate
