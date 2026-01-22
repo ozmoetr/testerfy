@@ -15,3 +15,6 @@ dist
 
 # Unraid repo-local SSH helper
 .ssh/
+
+# Local exports
+exports/
