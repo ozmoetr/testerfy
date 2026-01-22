@@ -6,9 +6,7 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { api, buildUrl } from "@shared/routes";
 import { pool } from "./db";
-
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+import { spotifyFetch, getUserPlaylistsCached, getPlaylistNameCached } from "./spotify";
 
 // Build the redirect URI from the current domain
 function getRedirectUri(): string {
@@ -104,69 +102,7 @@ async function getGuardDecision(userId: number, contextUri: string | undefined, 
   return { guardEnabled, guardBlocked: false, guardMessage: undefined as string | undefined, currentPlaylistId };
 }
 
-async function refreshTokenIfNeeded(userId: number): Promise<string | null> {
-  const user = await storage.getUserById(userId);
-  if (!user || !user.refreshToken) return null;
-
-  if (user.tokenExpiry && new Date(user.tokenExpiry) > new Date()) {
-    return user.accessToken;
-  }
-
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) return null;
-
-  const response = await fetch(SPOTIFY_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: user.refreshToken,
-    }),
-  });
-
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  const tokenExpiry = new Date(Date.now() + data.expires_in * 1000);
-
-  await storage.updateUser(userId, {
-    accessToken: data.access_token,
-    tokenExpiry,
-    ...(data.refresh_token && { refreshToken: data.refresh_token }),
-  });
-
-  return data.access_token;
-}
-
-async function spotifyFetch(userId: number, endpoint: string, options: RequestInit = {}) {
-  const accessToken = await refreshTokenIfNeeded(userId);
-  if (!accessToken) throw new Error("No valid access token");
-
-  const response = await fetch(`${SPOTIFY_API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-  if (response.status === 204) return null;
-  // Respect Spotify rate-limits.
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers.get("retry-after") ?? "1");
-    const error = await response.text();
-    throw new Error(`Spotify API error: 429 - Too many requests (retry-after=${retryAfter}s) - ${error}`);
-  }
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Spotify API error: ${response.status} - ${error}`);
-  }
-
-  return response.json();
-}
+// spotifyFetch and caching helpers live in `server/spotify.ts`
 
 export async function registerRoutes(
   httpServer: Server,
@@ -332,8 +268,8 @@ export async function registerRoutes(
 
   app.get(api.playlists.list.path, requireAuth, async (req, res) => {
     try {
-      const data = await spotifyFetch(req.session.userId!, "/me/playlists?limit=50");
-      res.json(data.items);
+      const items = await getUserPlaylistsCached(req.session.userId!);
+      res.json(items);
     } catch (err) {
       console.error("Playlists fetch error:", err);
       res.status(500).json({ message: "Failed to fetch playlists" });
@@ -401,9 +337,9 @@ export async function registerRoutes(
       if (data?.context?.uri && data.context.type === "playlist") {
         const playlistId = data.context.uri.split(":").pop();
         try {
-          const playlist = await spotifyFetch(req.session.userId!, `/playlists/${playlistId}?fields=name`);
-          if (playlist?.name) {
-            data.context.name = playlist.name;
+          if (playlistId) {
+            const name = await getPlaylistNameCached(req.session.userId!, playlistId);
+            if (name) data.context.name = name;
           }
         } catch (err) {
           // Playlist name fetch failed, continue without it
@@ -516,8 +452,9 @@ export async function registerRoutes(
       if (contextUri && contextUri.includes("playlist")) {
         const playlistId = contextUri.split(":").pop();
         try {
-          const playlist = await spotifyFetch(req.session.userId!, `/playlists/${playlistId}?fields=name`);
-          sourcePlaylistName = playlist?.name;
+          if (playlistId) {
+            sourcePlaylistName = (await getPlaylistNameCached(req.session.userId!, playlistId)) ?? undefined;
+          }
         } catch {}
       }
       
@@ -653,8 +590,9 @@ export async function registerRoutes(
       if (contextUri && contextUri.includes("playlist")) {
         const playlistId = contextUri.split(":").pop();
         try {
-          const playlist = await spotifyFetch(req.session.userId!, `/playlists/${playlistId}?fields=name`);
-          sourcePlaylistName = playlist?.name;
+          if (playlistId) {
+            sourcePlaylistName = (await getPlaylistNameCached(req.session.userId!, playlistId)) ?? undefined;
+          }
         } catch {}
       }
       

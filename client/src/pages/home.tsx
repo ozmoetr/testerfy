@@ -13,6 +13,7 @@ import type { CurrentUserResponse, PlaybackState } from "@shared/schema";
 
 export default function Home() {
   const { toast } = useToast();
+  const [isTabVisible, setIsTabVisible] = useState(true);
   const { data: user, isLoading: userLoading } = useQuery<CurrentUserResponse>({
     queryKey: ["/api/auth/me"],
   });
@@ -20,7 +21,12 @@ export default function Home() {
   const { data: playbackState, refetch: refetchPlayback } = useQuery<PlaybackState | null>({
     queryKey: ["/api/player/current"],
     enabled: !!user,
-    refetchInterval: 3000,
+    refetchInterval: () => {
+      if (!isTabVisible) return false;
+      // Mutations already refetch after actions; polling is just for UI freshness.
+      return 5000;
+    },
+    refetchIntervalInBackground: false,
   });
 
   const { data: targetPlaylists } = useQuery({
@@ -125,6 +131,13 @@ export default function Home() {
   // Get album art color for dynamic theming
   const albumArtUrl = playbackState?.item?.album.images[0]?.url;
   const { color: albumColor } = useAlbumColor(albumArtUrl);
+
+  useEffect(() => {
+    const updateVisibility = () => setIsTabVisible(!document.hidden);
+    updateVisibility();
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
 
   useEffect(() => {
     const checkMobile = () => {

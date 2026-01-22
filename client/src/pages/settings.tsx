@@ -21,6 +21,8 @@ export default function Settings() {
   } = useQuery<SpotifyPlaylist[]>({
     queryKey: ["/api/playlists"],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const {
