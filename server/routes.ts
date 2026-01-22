@@ -54,7 +54,23 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 async function getGuardDecision(userId: number, contextUri: string | undefined, contextType: string | undefined) {
-  const approved = await storage.getApprovedSourcePlaylists(userId);
+  // Guard should never take down core actions. If the DB isn't migrated yet (missing table),
+  // treat safeguard as disabled so like/dislike can still function.
+  let approved: Awaited<ReturnType<typeof storage.getApprovedSourcePlaylists>> = [];
+  try {
+    approved = await storage.getApprovedSourcePlaylists(userId);
+  } catch (err: any) {
+    const code = err?.code;
+    if (code === "42P01") {
+      console.warn(
+        "Safeguard table missing (approved_source_playlists). Run DB migration (drizzle-kit push). Treating safeguard as disabled.",
+      );
+      approved = [];
+    } else {
+      throw err;
+    }
+  }
+
   const guardEnabled = approved.length > 0;
 
   const currentPlaylistId =

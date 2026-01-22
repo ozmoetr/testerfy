@@ -14,17 +14,29 @@ export default function Settings() {
     queryKey: ["/api/auth/me"],
   });
 
-  const { data: playlists, isLoading: playlistsLoading } = useQuery<SpotifyPlaylist[]>({
+  const {
+    data: playlists,
+    isLoading: playlistsLoading,
+    isError: playlistsError,
+  } = useQuery<SpotifyPlaylist[]>({
     queryKey: ["/api/playlists"],
     enabled: !!user,
   });
 
-  const { data: approvedSourcePlaylists, isLoading: approvedLoading } = useQuery<ApprovedSourcePlaylist[]>({
+  const {
+    data: approvedSourcePlaylists,
+    isLoading: approvedLoading,
+    isError: approvedError,
+  } = useQuery<ApprovedSourcePlaylist[]>({
     queryKey: ["/api/approved-source-playlists"],
     enabled: !!user,
   });
 
-  const { data: targetPlaylists, isLoading: targetsLoading } = useQuery<TargetPlaylist[]>({
+  const {
+    data: targetPlaylists,
+    isLoading: targetsLoading,
+    isError: targetsError,
+  } = useQuery<TargetPlaylist[]>({
     queryKey: ["/api/target-playlists"],
     enabled: !!user,
   });
@@ -86,6 +98,45 @@ export default function Settings() {
   const approvedPlaylistIds = new Set(approvedSourcePlaylists?.map(p => p.playlistId) || []);
   const availableApprovedPlaylists = playlists?.filter(p => !approvedPlaylistIds.has(p.id)) || [];
 
+  const renderPlaylistRow = (
+    playlist: SpotifyPlaylist,
+    onAdd: () => void,
+    disabled: boolean,
+    testIdPrefix: string
+  ) => (
+    <div
+      key={playlist.id}
+      className="flex items-center gap-3 p-3 bg-muted/30 rounded-md hover-elevate"
+      data-testid={`${testIdPrefix}-playlist-${playlist.id}`}
+    >
+      {playlist.images[0]?.url ? (
+        <img
+          src={playlist.images[0].url}
+          alt={playlist.name}
+          className="w-10 h-10 rounded object-cover"
+        />
+      ) : (
+        <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+          <Music className="h-5 w-5 text-muted-foreground" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="font-medium truncate">{playlist.name}</div>
+        <div className="text-sm text-muted-foreground">{playlist.tracks.total} tracks</div>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onAdd}
+        disabled={disabled}
+        data-testid={`${testIdPrefix}-button-add-${playlist.id}`}
+        aria-label={`Add ${playlist.name}`}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center justify-between p-4 border-b gap-4">
@@ -113,32 +164,68 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {approvedLoading ? (
-              <div className="text-muted-foreground">Loading...</div>
-            ) : (approvedSourcePlaylists?.length ?? 0) === 0 ? (
-              <div className="text-muted-foreground text-sm py-4 text-center">
-                No approved playlists set. Safeguard is disabled.
-              </div>
-            ) : (
-              approvedSourcePlaylists?.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                  data-testid={`approved-source-playlist-${p.id}`}
-                >
-                  <span className="font-medium truncate flex-1">{p.playlistName}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeApprovedMutation.mutate(p.id)}
-                    disabled={removeApprovedMutation.isPending}
-                    data-testid={`button-approved-remove-${p.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Currently approved</div>
+              {approvedLoading ? (
+                <div className="text-muted-foreground">Loading...</div>
+              ) : approvedError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load approved playlists.
                 </div>
-              ))
-            )}
+              ) : (approvedSourcePlaylists?.length ?? 0) === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  None. Safeguard is currently disabled.
+                </div>
+              ) : (
+                approvedSourcePlaylists?.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                    data-testid={`approved-source-playlist-${p.id}`}
+                  >
+                    <span className="font-medium truncate flex-1">{p.playlistName}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeApprovedMutation.mutate(p.id)}
+                      disabled={removeApprovedMutation.isPending}
+                      data-testid={`button-approved-remove-${p.id}`}
+                      aria-label={`Remove ${p.playlistName}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 border-t space-y-2">
+              <div className="text-sm font-medium">Add approved playlists</div>
+              {playlistsLoading ? (
+                <div className="text-muted-foreground">Loading your playlists...</div>
+              ) : playlistsError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load your Spotify playlists.
+                </div>
+              ) : availableApprovedPlaylists.length === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  {playlists?.length === 0
+                    ? "No playlists found in your Spotify account."
+                    : "All your playlists are already approved."}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-2">
+                  {availableApprovedPlaylists.map((playlist) =>
+                    renderPlaylistRow(
+                      playlist,
+                      () => addApprovedMutation.mutate(playlist),
+                      addApprovedMutation.isPending,
+                      "approve"
+                    )
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -153,152 +240,68 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {targetsLoading ? (
-              <div className="text-muted-foreground">Loading...</div>
-            ) : targetPlaylists?.length === 0 ? (
-              <div className="text-muted-foreground text-sm py-4 text-center">
-                No target playlists added yet. Add some below.
-              </div>
-            ) : (
-              targetPlaylists?.map(target => (
-                <div
-                  key={target.id}
-                  className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                  data-testid={`target-playlist-${target.id}`}
-                >
-                  <span className="font-medium truncate flex-1">{target.playlistName}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeMutation.mutate(target.id)}
-                    disabled={removeMutation.isPending}
-                    data-testid={`button-remove-${target.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Current targets</div>
+              {targetsLoading ? (
+                <div className="text-muted-foreground">Loading...</div>
+              ) : targetsError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load target playlists.
                 </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5" />
-              Approve Playlists
-            </CardTitle>
-            <CardDescription>
-              Select playlists to allow playlist changes while listening
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {playlistsLoading ? (
-              <div className="text-muted-foreground">Loading your playlists...</div>
-            ) : availableApprovedPlaylists.length === 0 ? (
-              <div className="text-muted-foreground text-sm py-4 text-center">
-                {playlists?.length === 0
-                  ? "No playlists found in your Spotify account"
-                  : "All your playlists are already approved"}
-              </div>
-            ) : (
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {availableApprovedPlaylists.map((playlist) => (
+              ) : targetPlaylists?.length === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  None selected yet.
+                </div>
+              ) : (
+                targetPlaylists?.map(target => (
                   <div
-                    key={playlist.id}
-                    className="flex items-center gap-3 p-3 bg-muted/30 rounded-md hover-elevate"
-                    data-testid={`approve-playlist-${playlist.id}`}
+                    key={target.id}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                    data-testid={`target-playlist-${target.id}`}
                   >
-                    {playlist.images[0]?.url ? (
-                      <img
-                        src={playlist.images[0].url}
-                        alt={playlist.name}
-                        className="w-10 h-10 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                        <Music className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{playlist.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {playlist.tracks.total} tracks
-                      </div>
-                    </div>
+                    <span className="font-medium truncate flex-1">{target.playlistName}</span>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => addApprovedMutation.mutate(playlist)}
-                      disabled={addApprovedMutation.isPending}
-                      data-testid={`button-approve-${playlist.id}`}
+                      onClick={() => removeMutation.mutate(target.id)}
+                      disabled={removeMutation.isPending}
+                      data-testid={`button-remove-${target.id}`}
+                      aria-label={`Remove ${target.playlistName}`}
                     >
-                      <Plus className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                ))
+              )}
+            </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Music className="h-5 w-5" />
-              Your Playlists
-            </CardTitle>
-            <CardDescription>
-              Select playlists to add as targets for liked songs
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {playlistsLoading ? (
-              <div className="text-muted-foreground">Loading your playlists...</div>
-            ) : availablePlaylists.length === 0 ? (
-              <div className="text-muted-foreground text-sm py-4 text-center">
-                {playlists?.length === 0
-                  ? "No playlists found in your Spotify account"
-                  : "All your playlists are already added as targets"}
-              </div>
-            ) : (
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {availablePlaylists.map(playlist => (
-                  <div
-                    key={playlist.id}
-                    className="flex items-center gap-3 p-3 bg-muted/30 rounded-md hover-elevate"
-                    data-testid={`playlist-${playlist.id}`}
-                  >
-                    {playlist.images[0]?.url ? (
-                      <img
-                        src={playlist.images[0].url}
-                        alt={playlist.name}
-                        className="w-10 h-10 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                        <Music className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{playlist.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {playlist.tracks.total} tracks
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => addMutation.mutate(playlist)}
-                      disabled={addMutation.isPending}
-                      data-testid={`button-add-${playlist.id}`}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="pt-2 border-t space-y-2">
+              <div className="text-sm font-medium">Add target playlists</div>
+              {playlistsLoading ? (
+                <div className="text-muted-foreground">Loading your playlists...</div>
+              ) : playlistsError ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  Failed to load your Spotify playlists.
+                </div>
+              ) : availablePlaylists.length === 0 ? (
+                <div className="text-muted-foreground text-sm py-2">
+                  {playlists?.length === 0
+                    ? "No playlists found in your Spotify account."
+                    : "All your playlists are already added as targets."}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-2">
+                  {availablePlaylists.map((playlist) =>
+                    renderPlaylistRow(
+                      playlist,
+                      () => addMutation.mutate(playlist),
+                      addMutation.isPending,
+                      "targets"
+                    )
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </main>
