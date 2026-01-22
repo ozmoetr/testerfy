@@ -21,10 +21,12 @@ export default function Home() {
   const { data: playbackState, refetch: refetchPlayback } = useQuery<PlaybackState | null>({
     queryKey: ["/api/player/current"],
     enabled: !!user,
-    refetchInterval: () => {
+    refetchInterval: (query) => {
       if (!isTabVisible) return false;
-      // Mutations already refetch after actions; polling is just for UI freshness.
-      return 5000;
+      // Faster while playing, slower while paused.
+      const data = query.state.data;
+      if (data?.is_playing) return 3000;
+      return 7000;
     },
     refetchIntervalInBackground: false,
   });
@@ -59,7 +61,7 @@ export default function Home() {
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
         });
       }
-      setTimeout(() => refetchPlayback(), 1000);
+      setTimeout(() => refetchPlayback(), 450);
     },
   });
 
@@ -76,14 +78,14 @@ export default function Home() {
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
         });
       }
-      setTimeout(() => refetchPlayback(), 1000);
+      setTimeout(() => refetchPlayback(), 450);
     },
   });
 
   const skipMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/player/skip"),
     onSuccess: () => {
-      setTimeout(() => refetchPlayback(), 1000);
+      setTimeout(() => refetchPlayback(), 400);
     },
   });
 
@@ -104,7 +106,7 @@ export default function Home() {
   const previousMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/player/previous"),
     onSuccess: () => {
-      setTimeout(() => refetchPlayback(), 1000);
+      setTimeout(() => refetchPlayback(), 400);
     },
   });
 

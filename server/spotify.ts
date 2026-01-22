@@ -73,7 +73,7 @@ export async function spotifyFetch(userId: number, endpoint: string, options: Re
   // For user-triggered actions we can wait a bit on rate limits, but we should not hang forever.
   // Polling endpoints should call `spotifyFetchFast` instead.
   const maxRetries = 2;
-  const maxTotalWaitMs = 8000;
+  const maxTotalWaitMs = 4000;
   return await spotifyFetchInternal(userId, endpoint, options, { maxRetries, maxTotalWaitMs });
 }
 
@@ -144,6 +144,17 @@ export async function spotifyFetchFast(userId: number, endpoint: string, options
   return await spotifyFetchInternal(userId, endpoint, options, { maxRetries: 0, maxTotalWaitMs: 0 });
 }
 
+export async function spotifyFetchWithBudget(
+  userId: number,
+  endpoint: string,
+  budgetMs: number,
+  options: RequestInit = {}
+) {
+  const maxTotalWaitMs = Math.max(0, Math.min(5000, Math.floor(budgetMs)));
+  const maxRetries = maxTotalWaitMs > 0 ? 1 : 0;
+  return await spotifyFetchInternal(userId, endpoint, options, { maxRetries, maxTotalWaitMs });
+}
+
 export async function getUserPlaylistsCached(userId: number) {
   const now = Date.now();
   const cached = playlistsCache.get(userId);
@@ -154,7 +165,9 @@ export async function getUserPlaylistsCached(userId: number) {
 
   const p = (async () => {
     try {
-      const data = await spotifyFetchFast(userId, "/me/playlists?limit=50");
+      const data = cached
+        ? await spotifyFetchFast(userId, "/me/playlists?limit=50")
+        : await spotifyFetchWithBudget(userId, "/me/playlists?limit=50", 2500);
       const items = data?.items ?? [];
       playlistsCache.set(userId, { value: items, expiresAtMs: now + 5 * 60 * 1000 });
       return items;

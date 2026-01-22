@@ -18,11 +18,14 @@ export default function Settings() {
     data: playlists,
     isLoading: playlistsLoading,
     isError: playlistsError,
+    refetch: refetchPlaylists,
   } = useQuery<SpotifyPlaylist[]>({
     queryKey: ["/api/playlists"],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(3000, 500 * 2 ** attempt),
   });
 
   const {
@@ -205,8 +208,11 @@ export default function Settings() {
               {playlistsLoading ? (
                 <div className="text-muted-foreground">Loading your playlists...</div>
               ) : playlistsError ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  Failed to load your Spotify playlists.
+                <div className="flex items-center justify-between gap-3 text-muted-foreground text-sm py-2">
+                  <span>Failed to load your Spotify playlists.</span>
+                  <Button variant="outline" size="sm" onClick={() => refetchPlaylists()}>
+                    Retry
+                  </Button>
                 </div>
               ) : availablePlaylists.length === 0 ? (
                 <div className="text-muted-foreground text-sm py-2">
@@ -282,8 +288,11 @@ export default function Settings() {
               {playlistsLoading ? (
                 <div className="text-muted-foreground">Loading your playlists...</div>
               ) : playlistsError ? (
-                <div className="text-muted-foreground text-sm py-2">
-                  Failed to load your Spotify playlists.
+                <div className="flex items-center justify-between gap-3 text-muted-foreground text-sm py-2">
+                  <span>Failed to load your Spotify playlists.</span>
+                  <Button variant="outline" size="sm" onClick={() => refetchPlaylists()}>
+                    Retry
+                  </Button>
                 </div>
               ) : availableApprovedPlaylists.length === 0 ? (
                 <div className="text-muted-foreground text-sm py-2">
