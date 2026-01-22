@@ -12,3 +12,6 @@ dist
 # Env files
 .env
 .env.*
+
+# Unraid repo-local SSH helper
+.ssh/
