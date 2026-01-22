@@ -129,6 +129,7 @@ export default function Home() {
   });
 
   const [isMobile, setIsMobile] = useState(false);
+  const [isMobileLandscape, setIsMobileLandscape] = useState(false);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
   const [swipeProgress, setSwipeProgress] = useState(0); // 0 to 1, tracks how far user has swiped
   const [showSwipeNudge, setShowSwipeNudge] = useState(false);
@@ -150,7 +151,7 @@ export default function Home() {
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
-    const shouldLock = window.matchMedia("(max-width: 640px)").matches && isMobile;
+    const shouldLock = isMobile;
     if (shouldLock) {
       html.classList.add("testerfy-scroll-lock");
       body.classList.add("testerfy-scroll-lock");
@@ -167,6 +168,22 @@ export default function Home() {
     };
     checkMobile();
   }, []);
+
+  useEffect(() => {
+    const update = () => {
+      const isLandscape =
+        window.matchMedia?.("(orientation: landscape)")?.matches ??
+        (window.innerWidth > window.innerHeight);
+      setIsMobileLandscape(isMobile && isLandscape);
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, [isMobile]);
 
   // Show swipe nudge once when first track loads on mobile
   useEffect(() => {
@@ -416,28 +433,152 @@ export default function Home() {
           </Card>
         ) : (
           <>
-            <div 
-              {...swipeHandlers}
-              className={`w-full max-w-md space-y-1 sm:space-y-4 pb-16 sm:pb-0 transition-transform duration-200 ${
-                swipeDirection === 'right' ? 'translate-x-2' : 
-                swipeDirection === 'left' ? '-translate-x-2' : 
-                showSwipeNudge ? 'animate-swipe-nudge' : ''
-              }`}
-              style={{ touchAction: isMobile ? 'pan-x' : 'auto' }}
-            >
-              {/* Desktop only: Like button at top */}
-              <Button
-                size="lg"
-                className="hidden sm:flex w-full py-6 rounded-xl text-lg gap-3"
-                onClick={() => likeMutation.mutate()}
-                disabled={isActionPending}
-                data-testid="button-like-desktop"
-              >
-                <ThumbsUp className="h-7 w-7" />
-                Like
-              </Button>
+            {isMobileLandscape ? (
+              <div className="w-full h-full flex items-stretch justify-center gap-3">
+                <Button
+                  size="lg"
+                  variant="destructive"
+                  className="h-full min-w-[96px] w-[20vw] max-w-[140px] rounded-2xl flex flex-col items-center justify-center gap-2 text-base font-semibold"
+                  onClick={() => dislikeMutation.mutate()}
+                  disabled={isActionPending}
+                  data-testid="button-dislike-landscape"
+                >
+                  <ThumbsDown className="h-7 w-7" />
+                  Dislike
+                </Button>
 
-              <Card className="overflow-hidden relative">
+                <div
+                  {...swipeHandlers}
+                  className={`flex-1 max-w-[520px] transition-transform duration-200 ${
+                    swipeDirection === 'right' ? 'translate-x-1' :
+                    swipeDirection === 'left' ? '-translate-x-1' :
+                    showSwipeNudge ? 'animate-swipe-nudge' : ''
+                  }`}
+                  style={{ touchAction: 'pan-x' }}
+                >
+                  <Card className="h-full overflow-hidden relative">
+                    <div className="relative">
+                      {albumArt && (
+                        <div className="w-full max-h-[40vh] overflow-hidden flex items-center justify-center bg-black/10">
+                          <img
+                            src={albumArt}
+                            alt={track.album.name}
+                            className="w-full h-auto object-contain max-h-[40vh]"
+                          />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30" data-testid="progress-bar-container">
+                        <div
+                          className="h-full bg-primary transition-all duration-300"
+                          style={{ width: `${progressPercent}%` }}
+                          data-testid="progress-bar"
+                        />
+                      </div>
+                    </div>
+                    <CardContent className="p-3 sm:p-4 space-y-2">
+                      <div className="space-y-0.5">
+                        <h2 className="text-base sm:text-lg font-semibold truncate" data-testid="text-track-name">
+                          {track.name}
+                        </h2>
+                        <p className="text-sm text-muted-foreground truncate" data-testid="text-artist-name">
+                          {artistNames}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
+                        <span data-testid="text-progress">{formatTime(progressMs)}</span>
+                        <span data-testid="text-duration">{formatTime(durationMs)}</span>
+                      </div>
+                      <div className="flex items-center justify-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={`rounded-full ${shuffleData?.shuffle_state ? 'text-primary' : ''}`}
+                          onClick={() => shuffleMutation.mutate(!shuffleData?.shuffle_state)}
+                          disabled={shuffleMutation.isPending}
+                          data-testid="button-shuffle"
+                        >
+                          <Shuffle className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="rounded-full"
+                          onClick={() => previousMutation.mutate()}
+                          disabled={isPlaybackPending}
+                          data-testid="button-previous"
+                        >
+                          <SkipBack className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="rounded-full"
+                          onClick={() => isPlaying ? pauseMutation.mutate() : playMutation.mutate()}
+                          disabled={isPlaybackPending}
+                          data-testid="button-play-pause"
+                        >
+                          {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="rounded-full"
+                          onClick={() => skipMutation.mutate()}
+                          disabled={isPlaybackPending}
+                          data-testid="button-skip"
+                        >
+                          <SkipForward className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {playbackState?.context?.type === "playlist" && playbackState.context.name && (
+                        <div className="flex items-center gap-1 pt-1 border-t text-xs text-muted-foreground">
+                          <ListMusic className="h-3 w-3 shrink-0" />
+                          <span className="truncate" data-testid="text-playlist-name">
+                            {playbackState.context.name}
+                          </span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Button
+                  size="lg"
+                  className="h-full min-w-[96px] w-[20vw] max-w-[140px] rounded-2xl flex flex-col items-center justify-center gap-2 text-base font-semibold"
+                  onClick={() => likeMutation.mutate()}
+                  disabled={isActionPending}
+                  data-testid="button-like-landscape"
+                >
+                  <ThumbsUp className="h-7 w-7" />
+                  Like
+                </Button>
+              </div>
+            ) : (
+              <>
+              <div 
+                {...swipeHandlers}
+                className={`w-full max-w-md space-y-1 sm:space-y-4 pb-16 sm:pb-0 transition-transform duration-200 ${
+                  swipeDirection === 'right' ? 'translate-x-2' : 
+                  swipeDirection === 'left' ? '-translate-x-2' : 
+                  showSwipeNudge ? 'animate-swipe-nudge' : ''
+                }`}
+                style={{ touchAction: isMobile ? 'pan-x' : 'auto' }}
+              >
+                {/* Desktop only: Like button at top */}
+                {!isMobile && (
+                  <Button
+                    size="lg"
+                    className="hidden sm:flex w-full py-6 rounded-xl text-lg gap-3"
+                    onClick={() => likeMutation.mutate()}
+                    disabled={isActionPending}
+                    data-testid="button-like-desktop"
+                  >
+                    <ThumbsUp className="h-7 w-7" />
+                    Like
+                  </Button>
+                )}
+
+                <Card className="overflow-hidden relative">
                 <div className="relative">
                   {albumArt && (
                     <div className="w-full max-h-[28vh] sm:max-h-[50vh] overflow-hidden flex items-center justify-center bg-black/10">
@@ -541,17 +682,19 @@ export default function Home() {
               </Card>
 
               {/* Desktop only: Dislike button below card */}
-              <Button
-                size="lg"
-                variant="destructive"
-                className="hidden sm:flex w-full py-6 rounded-xl text-lg gap-3"
-                onClick={() => dislikeMutation.mutate()}
-                disabled={isActionPending}
-                data-testid="button-dislike-desktop"
-              >
-                <ThumbsDown className="h-7 w-7" />
-                Dislike
-              </Button>
+              {!isMobile && (
+                <Button
+                  size="lg"
+                  variant="destructive"
+                  className="hidden sm:flex w-full py-6 rounded-xl text-lg gap-3"
+                  onClick={() => dislikeMutation.mutate()}
+                  disabled={isActionPending}
+                  data-testid="button-dislike-desktop"
+                >
+                  <ThumbsDown className="h-7 w-7" />
+                  Dislike
+                </Button>
+              )}
 
               {Array.isArray(targetPlaylists) && targetPlaylists.length === 0 && (
                 <p className="text-center text-xs sm:text-sm text-amber-600 dark:text-amber-400 hidden sm:block">
@@ -567,29 +710,33 @@ export default function Home() {
             </div>
 
             {/* Mobile only: Fixed bottom action bar - Dislike left (swipe left), Like right (swipe right) */}
-            <div className="fixed bottom-0 left-0 right-0 p-3 bg-background/95 backdrop-blur border-t flex gap-3 sm:hidden z-50">
-              <Button
-                size="lg"
-                variant="destructive"
-                className="flex-1 rounded-xl gap-2"
-                onClick={() => dislikeMutation.mutate()}
-                disabled={isActionPending}
-                data-testid="button-dislike"
-              >
-                <ThumbsDown className="h-5 w-5" />
-                Dislike
-              </Button>
-              <Button
-                size="lg"
-                className="flex-1 rounded-xl gap-2"
-                onClick={() => likeMutation.mutate()}
-                disabled={isActionPending}
-                data-testid="button-like"
-              >
-                <ThumbsUp className="h-5 w-5" />
-                Like
-              </Button>
-            </div>
+            {isMobile && (
+              <div className="fixed bottom-0 left-0 right-0 p-3 bg-background/95 backdrop-blur border-t flex gap-3 sm:hidden z-50">
+                <Button
+                  size="lg"
+                  variant="destructive"
+                  className="flex-1 rounded-xl gap-2"
+                  onClick={() => dislikeMutation.mutate()}
+                  disabled={isActionPending}
+                  data-testid="button-dislike"
+                >
+                  <ThumbsDown className="h-5 w-5" />
+                  Dislike
+                </Button>
+                <Button
+                  size="lg"
+                  className="flex-1 rounded-xl gap-2"
+                  onClick={() => likeMutation.mutate()}
+                  disabled={isActionPending}
+                  data-testid="button-like"
+                >
+                  <ThumbsUp className="h-5 w-5" />
+                  Like
+                </Button>
+              </div>
+            )}
+              </>
+            )}
           </>
         )}
       </main>
