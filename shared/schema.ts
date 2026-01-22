@@ -44,6 +44,7 @@ export const songActions = pgTable("song_actions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
   trackId: text("track_id").notNull(),
+  trackUri: text("track_uri"),
   trackName: text("track_name").notNull(),
   artistName: text("artist_name").notNull(),
   albumName: text("album_name"),
@@ -54,6 +55,20 @@ export const songActions = pgTable("song_actions", {
   guardBlocked: boolean("guard_blocked").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Export cursor for incremental “song_actions → file” exports.
+export const exportCursors = pgTable(
+  "export_cursors",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id).notNull(),
+    lastSongActionId: integer("last_song_action_id").notNull().default(0),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdUnique: uniqueIndex("export_cursors_user_id_unique").on(t.userId),
+  }),
+);
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertTargetPlaylistSchema = createInsertSchema(targetPlaylists).omit({ id: true });
@@ -68,6 +83,7 @@ export type ApprovedSourcePlaylist = typeof approvedSourcePlaylists.$inferSelect
 export type InsertApprovedSourcePlaylist = z.infer<typeof insertApprovedSourcePlaylistSchema>;
 export type SongAction = typeof songActions.$inferSelect;
 export type InsertSongAction = z.infer<typeof insertSongActionSchema>;
+export type ExportCursor = typeof exportCursors.$inferSelect;
 
 export type SpotifyPlaylist = {
   id: string;

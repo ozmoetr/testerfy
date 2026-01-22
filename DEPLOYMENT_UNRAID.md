@@ -99,6 +99,35 @@ Your app will be reachable at `http://testerfy:5000` on your tailnet, and the Ma
 - If auth fails, verify `SPOTIFY_REDIRECT_URI` exactly matches the Spotify app settings.
 - If the app cannot connect to Postgres, verify `POSTGRES_*` in `.env` and confirm the database container is healthy.
 
+## Optional: Export actions for Unraid User Scripts (fail-safe cleanup)
+If Spotify is slow/temporary rate-limited, skips can still work while playlist removals don’t always “stick” immediately. A safe way to harden this is to export your **like/dislike history** from Postgres and let an Unraid User Script do cleanup later (remove any liked/disliked tracks from your tester playlist, and ensure likes exist in target playlists).
+
+### 1) Enable the exporter
+In `.env`:
+- `ENABLE_ACTION_EXPORTER=true`
+- `EXPORT_INTERVAL_HOURS=3`
+- `TESTER_PLAYLIST_ID=<your tester playlist id>` (e.g. Testercle)
+
+Exports will be written to:
+- `./exports/` in the repo folder (bind-mounted into the container as `/exports`)
+
+### 2) Apply DB migrations + restart
+```
+docker compose --profile migrate run --rm migrate
+docker compose up -d --build --force-recreate app
+```
+
+### 3) File format
+For each user, files land under:
+- `exports/user-<userId>/`
+
+Each run writes:
+- `song-actions_<from>-<to>_<timestamp>.jsonl` (newline-delimited JSON, one action per line)
+- `summary_<from>-<to>_<timestamp>.json` (includes `TESTER_PLAYLIST_ID`, target playlists, and deduped lists)
+- `latest.json` (points to the most recent export)
+
+Your Unraid User Script can safely process each file once (or use the `from/to` range) to avoid reprocessing.
+
 ## Notes
 - This deployment keeps your current app code unchanged.
 - Do not commit `.env` to GitHub.

@@ -64,6 +64,9 @@ services:
     depends_on:
       - postgres
     restart: unless-stopped
+    volumes:
+      # Exported actions for Unraid User Scripts (host-readable).
+      - ./exports:/exports
     labels:
       - "net.unraid.docker.managed=false"
       - "net.unraid.docker.icon=https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Spotify_logo_without_text.svg/200px-Spotify_logo_without_text.svg.png"

@@ -391,6 +391,7 @@ export async function registerRoutes(
         await storage.addSongAction({
           userId: req.session.userId!,
           trackId: playbackState.item.id,
+          trackUri,
           trackName: playbackState.item.name,
           artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
           albumName: playbackState.item.album?.name,
@@ -461,6 +462,7 @@ export async function registerRoutes(
       await storage.addSongAction({
         userId: req.session.userId!,
         trackId: playbackState.item.id,
+        trackUri,
         trackName: playbackState.item.name,
         artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
         albumName: playbackState.item.album?.name,
@@ -523,6 +525,7 @@ export async function registerRoutes(
         await storage.addSongAction({
           userId: req.session.userId!,
           trackId: playbackState.item.id,
+          trackUri,
           trackName: playbackState.item.name,
           artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
           albumName: playbackState.item.album?.name,
@@ -599,6 +602,7 @@ export async function registerRoutes(
       await storage.addSongAction({
         userId: req.session.userId!,
         trackId: playbackState.item.id,
+        trackUri,
         trackName: playbackState.item.name,
         artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
         albumName: playbackState.item.album?.name,

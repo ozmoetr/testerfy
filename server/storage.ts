@@ -4,6 +4,7 @@ import {
   targetPlaylists,
   approvedSourcePlaylists,
   songActions,
+  exportCursors,
   type User,
   type InsertUser,
   type TargetPlaylist,
@@ -18,6 +19,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 export interface IStorage {
   getUserBySpotifyId(spotifyId: string): Promise<User | undefined>;
   getUserById(id: number): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<InsertUser>): Promise<User>;
   getTargetPlaylists(userId: number): Promise<TargetPlaylist[]>;
@@ -28,7 +30,10 @@ export interface IStorage {
   removeApprovedSourcePlaylist(id: number, userId: number): Promise<void>;
   addSongAction(action: InsertSongAction): Promise<SongAction>;
   getSongActions(userId: number, limit?: number): Promise<SongAction[]>;
+  getSongActionsSinceId(userId: number, afterId: number, limit?: number): Promise<SongAction[]>;
   getSongActionStats(userId: number): Promise<{ likes: number; dislikes: number }>;
+  getExportCursor(userId: number): Promise<number>;
+  setExportCursor(userId: number, lastSongActionId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -40,6 +45,10 @@ export class DatabaseStorage implements IStorage {
   async getUserById(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users);
   }
 
   async createUser(user: InsertUser): Promise<User> {
@@ -92,6 +101,38 @@ export class DatabaseStorage implements IStorage {
       .where(eq(songActions.userId, userId))
       .orderBy(desc(songActions.createdAt))
       .limit(limit);
+  }
+
+  async getSongActionsSinceId(userId: number, afterId: number, limit: number = 5000): Promise<SongAction[]> {
+    // We export in ascending order for stable “cursor” semantics.
+    return await db
+      .select()
+      .from(songActions)
+      .where(and(eq(songActions.userId, userId), sql`${songActions.id} > ${afterId}`))
+      .orderBy(sql`${songActions.id} asc`)
+      .limit(limit);
+  }
+
+  async getExportCursor(userId: number): Promise<number> {
+    const [row] = await db.select().from(exportCursors).where(eq(exportCursors.userId, userId));
+    return row?.lastSongActionId ?? 0;
+  }
+
+  async setExportCursor(userId: number, lastSongActionId: number): Promise<void> {
+    const [existing] = await db.select().from(exportCursors).where(eq(exportCursors.userId, userId));
+    if (existing) {
+      await db
+        .update(exportCursors)
+        .set({ lastSongActionId, updatedAt: new Date() })
+        .where(eq(exportCursors.userId, userId));
+      return;
+    }
+
+    await db.insert(exportCursors).values({
+      userId,
+      lastSongActionId,
+      updatedAt: new Date(),
+    });
   }
 
   async getSongActionStats(userId: number): Promise<{ likes: number; dislikes: number }> {
