@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startActionExporter } from "./exporter";
+import { ensureDbSchema } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -64,6 +65,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Ensure core tables/columns exist so the app can always log actions.
+  await ensureDbSchema();
   await registerRoutes(httpServer, app);
   startActionExporter();
 

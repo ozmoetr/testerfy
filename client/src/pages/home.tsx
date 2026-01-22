@@ -61,6 +61,13 @@ export default function Home() {
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
         });
       }
+      if (data?.logError) {
+        toast({
+          variant: "warning",
+          title: "Action recorded with issues",
+          description: "Your like/dislike was sent, but saving to the database failed. Stats/exports may be incomplete until the DB is healthy.",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/stats/summary"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats/history"] });
       setTimeout(() => refetchPlayback(), 450);
@@ -78,6 +85,13 @@ export default function Home() {
           variant: "warning",
           title: "Safeguard active",
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
+        });
+      }
+      if (data?.logError) {
+        toast({
+          variant: "warning",
+          title: "Action recorded with issues",
+          description: "Your like/dislike was sent, but saving to the database failed. Stats/exports may be incomplete until the DB is healthy.",
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/stats/summary"] });
