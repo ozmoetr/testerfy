@@ -253,7 +253,8 @@ export async function registerRoutes(
       if (user) {
         user = await storage.updateUser(user.id, {
           accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          // Spotify may not return refresh_token on subsequent authorizations; don't overwrite a good one.
+          ...(tokens.refresh_token ? { refreshToken: tokens.refresh_token } : {}),
           tokenExpiry,
           displayName: profile.display_name,
         });
@@ -267,15 +268,22 @@ export async function registerRoutes(
         });
       }
 
+      // Regenerate + explicitly save so sessions persist reliably behind reverse proxies.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error("Session regenerate error:", regenErr);
+          return res.redirect("/?error=session_regen_failed");
+        }
 
-  req.session.userId = user.id;
-  req.session.save((err) => {
-    if (err) {
-      console.error("Session save error:", err);
-      return res.redirect("/?error=session_error");
-    }
-    return res.redirect("/");
-  });
+        req.session.userId = user.id;
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("Session save error:", saveErr);
+            return res.redirect("/?error=session_save_failed");
+          }
+          return res.redirect("/");
+        });
+      });
     } catch (err) {
       console.error("Auth callback error:", err);
       res.redirect("/?error=auth_error");
