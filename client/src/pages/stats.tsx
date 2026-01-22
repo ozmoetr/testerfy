@@ -31,11 +31,18 @@ export default function Stats() {
   const { data: stats } = useQuery<StatsSummary>({
     queryKey: ["/api/stats/summary"],
     enabled: !!user,
+    // Default queryClient has staleTime=Infinity; stats should always reflect recent actions.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const { data: history } = useQuery<SongActionHistory[]>({
     queryKey: ["/api/stats/history"],
     enabled: !!user,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   if (userLoading) {

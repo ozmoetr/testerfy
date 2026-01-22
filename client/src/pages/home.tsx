@@ -61,6 +61,8 @@ export default function Home() {
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
         });
       }
+      queryClient.invalidateQueries({ queryKey: ["/api/stats/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats/history"] });
       setTimeout(() => refetchPlayback(), 450);
     },
   });
@@ -78,6 +80,8 @@ export default function Home() {
           description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
         });
       }
+      queryClient.invalidateQueries({ queryKey: ["/api/stats/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats/history"] });
       setTimeout(() => refetchPlayback(), 450);
     },
   });
