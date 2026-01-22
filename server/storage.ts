@@ -1,5 +1,18 @@
 import { db } from "./db";
-import { users, targetPlaylists, songActions, type User, type InsertUser, type TargetPlaylist, type InsertTargetPlaylist, type SongAction, type InsertSongAction } from "@shared/schema";
+import {
+  users,
+  targetPlaylists,
+  approvedSourcePlaylists,
+  songActions,
+  type User,
+  type InsertUser,
+  type TargetPlaylist,
+  type InsertTargetPlaylist,
+  type ApprovedSourcePlaylist,
+  type InsertApprovedSourcePlaylist,
+  type SongAction,
+  type InsertSongAction,
+} from "@shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
@@ -10,6 +23,9 @@ export interface IStorage {
   getTargetPlaylists(userId: number): Promise<TargetPlaylist[]>;
   addTargetPlaylist(playlist: InsertTargetPlaylist): Promise<TargetPlaylist>;
   removeTargetPlaylist(id: number, userId: number): Promise<void>;
+  getApprovedSourcePlaylists(userId: number): Promise<ApprovedSourcePlaylist[]>;
+  addApprovedSourcePlaylist(playlist: InsertApprovedSourcePlaylist): Promise<ApprovedSourcePlaylist>;
+  removeApprovedSourcePlaylist(id: number, userId: number): Promise<void>;
   addSongAction(action: InsertSongAction): Promise<SongAction>;
   getSongActions(userId: number, limit?: number): Promise<SongAction[]>;
   getSongActionStats(userId: number): Promise<{ likes: number; dislikes: number }>;
@@ -48,6 +64,21 @@ export class DatabaseStorage implements IStorage {
   async removeTargetPlaylist(id: number, userId: number): Promise<void> {
     await db.delete(targetPlaylists).where(
       and(eq(targetPlaylists.id, id), eq(targetPlaylists.userId, userId))
+    );
+  }
+
+  async getApprovedSourcePlaylists(userId: number): Promise<ApprovedSourcePlaylist[]> {
+    return await db.select().from(approvedSourcePlaylists).where(eq(approvedSourcePlaylists.userId, userId));
+  }
+
+  async addApprovedSourcePlaylist(playlist: InsertApprovedSourcePlaylist): Promise<ApprovedSourcePlaylist> {
+    const [created] = await db.insert(approvedSourcePlaylists).values(playlist).returning();
+    return created;
+  }
+
+  async removeApprovedSourcePlaylist(id: number, userId: number): Promise<void> {
+    await db.delete(approvedSourcePlaylists).where(
+      and(eq(approvedSourcePlaylists.id, id), eq(approvedSourcePlaylists.userId, userId))
     );
   }
 

@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -18,6 +18,20 @@ export const targetPlaylists = pgTable("target_playlists", {
   playlistName: text("playlist_name").notNull(),
 });
 
+// Optional safety guard: only allow playlist modifications when playback is from one of these playlists.
+export const approvedSourcePlaylists = pgTable(
+  "approved_source_playlists",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id).notNull(),
+    playlistId: text("playlist_id").notNull(),
+    playlistName: text("playlist_name").notNull(),
+  },
+  (t) => ({
+    userPlaylistUnique: uniqueIndex("approved_source_user_playlist_unique").on(t.userId, t.playlistId),
+  }),
+);
+
 export const songActions = pgTable("song_actions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
@@ -29,17 +43,21 @@ export const songActions = pgTable("song_actions", {
   action: text("action").notNull(), // 'like' or 'dislike'
   sourcePlaylistId: text("source_playlist_id"),
   sourcePlaylistName: text("source_playlist_name"),
+  guardBlocked: boolean("guard_blocked").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertTargetPlaylistSchema = createInsertSchema(targetPlaylists).omit({ id: true });
+export const insertApprovedSourcePlaylistSchema = createInsertSchema(approvedSourcePlaylists).omit({ id: true });
 export const insertSongActionSchema = createInsertSchema(songActions).omit({ id: true, createdAt: true });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type TargetPlaylist = typeof targetPlaylists.$inferSelect;
 export type InsertTargetPlaylist = z.infer<typeof insertTargetPlaylistSchema>;
+export type ApprovedSourcePlaylist = typeof approvedSourcePlaylists.$inferSelect;
+export type InsertApprovedSourcePlaylist = z.infer<typeof insertApprovedSourcePlaylistSchema>;
 export type SongAction = typeof songActions.$inferSelect;
 export type InsertSongAction = z.infer<typeof insertSongActionSchema>;
 

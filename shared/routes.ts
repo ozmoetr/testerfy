@@ -107,6 +107,47 @@ export const api = {
       },
     },
   },
+  approvedSourcePlaylists: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/approved-source-playlists',
+      responses: {
+        200: z.array(z.object({
+          id: z.number(),
+          userId: z.number(),
+          playlistId: z.string(),
+          playlistName: z.string(),
+        })),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    add: {
+      method: 'POST' as const,
+      path: '/api/approved-source-playlists',
+      input: z.object({
+        playlistId: z.string(),
+        playlistName: z.string(),
+      }),
+      responses: {
+        201: z.object({
+          id: z.number(),
+          userId: z.number(),
+          playlistId: z.string(),
+          playlistName: z.string(),
+        }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    remove: {
+      method: 'DELETE' as const,
+      path: '/api/approved-source-playlists/:id',
+      responses: {
+        204: z.void(),
+        401: errorSchemas.unauthorized,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
   player: {
     current: {
       method: 'GET' as const,
@@ -144,6 +185,10 @@ export const api = {
           addErrors: z.array(z.string()).optional(),
           removedFromSource: z.boolean().optional(),
           removalError: z.string().optional(),
+          guardEnabled: z.boolean().optional(),
+          guardBlocked: z.boolean().optional(),
+          guardMessage: z.string().optional(),
+          currentPlaylistId: z.string().nullable().optional(),
           sourceContext: z.object({
             type: z.string(),
             uri: z.string().nullable(),
@@ -161,6 +206,10 @@ export const api = {
           removedFromSource: z.boolean().optional(),
           removalTarget: z.enum(["playlist", "library"]).nullable().optional(),
           removalError: z.string().optional(),
+          guardEnabled: z.boolean().optional(),
+          guardBlocked: z.boolean().optional(),
+          guardMessage: z.string().optional(),
+          currentPlaylistId: z.string().nullable().optional(),
           sourceContext: z.object({
             type: z.string(),
             uri: z.string().nullable(),

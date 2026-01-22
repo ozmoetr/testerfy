@@ -8,9 +8,11 @@ import { Link } from "wouter";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useSwipeable } from "react-swipeable";
 import { useAlbumColor } from "@/hooks/use-album-color";
+import { useToast } from "@/hooks/use-toast";
 import type { CurrentUserResponse, PlaybackState } from "@shared/schema";
 
 export default function Home() {
+  const { toast } = useToast();
   const { data: user, isLoading: userLoading } = useQuery<CurrentUserResponse>({
     queryKey: ["/api/auth/me"],
   });
@@ -39,15 +41,35 @@ export default function Home() {
   });
 
   const likeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/player/like"),
-    onSuccess: () => {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/player/like");
+      return await res.json().catch(() => null);
+    },
+    onSuccess: (data: any) => {
+      if (data?.guardBlocked) {
+        toast({
+          variant: "warning",
+          title: "Safeguard active",
+          description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
+        });
+      }
       setTimeout(() => refetchPlayback(), 1000);
     },
   });
 
   const dislikeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/player/dislike"),
-    onSuccess: () => {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/player/dislike");
+      return await res.json().catch(() => null);
+    },
+    onSuccess: (data: any) => {
+      if (data?.guardBlocked) {
+        toast({
+          variant: "warning",
+          title: "Safeguard active",
+          description: data.guardMessage || "Playlist changes were blocked because the current playlist is not approved.",
+        });
+      }
       setTimeout(() => refetchPlayback(), 1000);
     },
   });

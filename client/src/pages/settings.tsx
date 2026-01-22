@@ -2,10 +2,10 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Plus, Trash2, Music, ListMusic } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Music, ListMusic, Shield } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { CurrentUserResponse, SpotifyPlaylist, TargetPlaylist } from "@shared/schema";
+import type { CurrentUserResponse, SpotifyPlaylist, TargetPlaylist, ApprovedSourcePlaylist } from "@shared/schema";
 
 export default function Settings() {
   const [, setLocation] = useLocation();
@@ -16,6 +16,11 @@ export default function Settings() {
 
   const { data: playlists, isLoading: playlistsLoading } = useQuery<SpotifyPlaylist[]>({
     queryKey: ["/api/playlists"],
+    enabled: !!user,
+  });
+
+  const { data: approvedSourcePlaylists, isLoading: approvedLoading } = useQuery<ApprovedSourcePlaylist[]>({
+    queryKey: ["/api/approved-source-playlists"],
     enabled: !!user,
   });
 
@@ -43,6 +48,25 @@ export default function Settings() {
     },
   });
 
+  const addApprovedMutation = useMutation({
+    mutationFn: (playlist: SpotifyPlaylist) =>
+      apiRequest("POST", "/api/approved-source-playlists", {
+        playlistId: playlist.id,
+        playlistName: playlist.name,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approved-source-playlists"] });
+    },
+  });
+
+  const removeApprovedMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiRequest("DELETE", `/api/approved-source-playlists/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approved-source-playlists"] });
+    },
+  });
+
   if (userLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -59,6 +83,9 @@ export default function Settings() {
   const targetPlaylistIds = new Set(targetPlaylists?.map(t => t.playlistId) || []);
   const availablePlaylists = playlists?.filter(p => !targetPlaylistIds.has(p.id)) || [];
 
+  const approvedPlaylistIds = new Set(approvedSourcePlaylists?.map(p => p.playlistId) || []);
+  const availableApprovedPlaylists = playlists?.filter(p => !approvedPlaylistIds.has(p.id)) || [];
+
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center justify-between p-4 border-b gap-4">
@@ -74,6 +101,47 @@ export default function Settings() {
       </header>
 
       <main className="max-w-2xl mx-auto p-4 sm:p-8 space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Approved Source Playlists (Safeguard)
+            </CardTitle>
+            <CardDescription>
+              Optional. If set, likes/dislikes will only add/remove tracks when you are playing from one of these playlists.
+              Skipping still works anywhere.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {approvedLoading ? (
+              <div className="text-muted-foreground">Loading...</div>
+            ) : (approvedSourcePlaylists?.length ?? 0) === 0 ? (
+              <div className="text-muted-foreground text-sm py-4 text-center">
+                No approved playlists set. Safeguard is disabled.
+              </div>
+            ) : (
+              approvedSourcePlaylists?.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                  data-testid={`approved-source-playlist-${p.id}`}
+                >
+                  <span className="font-medium truncate flex-1">{p.playlistName}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeApprovedMutation.mutate(p.id)}
+                    disabled={removeApprovedMutation.isPending}
+                    data-testid={`button-approved-remove-${p.id}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -110,6 +178,66 @@ export default function Settings() {
                   </Button>
                 </div>
               ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Approve Playlists
+            </CardTitle>
+            <CardDescription>
+              Select playlists to allow playlist changes while listening
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {playlistsLoading ? (
+              <div className="text-muted-foreground">Loading your playlists...</div>
+            ) : availableApprovedPlaylists.length === 0 ? (
+              <div className="text-muted-foreground text-sm py-4 text-center">
+                {playlists?.length === 0
+                  ? "No playlists found in your Spotify account"
+                  : "All your playlists are already approved"}
+              </div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto space-y-2">
+                {availableApprovedPlaylists.map((playlist) => (
+                  <div
+                    key={playlist.id}
+                    className="flex items-center gap-3 p-3 bg-muted/30 rounded-md hover-elevate"
+                    data-testid={`approve-playlist-${playlist.id}`}
+                  >
+                    {playlist.images[0]?.url ? (
+                      <img
+                        src={playlist.images[0].url}
+                        alt={playlist.name}
+                        className="w-10 h-10 rounded object-cover"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                        <Music className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{playlist.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {playlist.tracks.total} tracks
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => addApprovedMutation.mutate(playlist)}
+                      disabled={addApprovedMutation.isPending}
+                      data-testid={`button-approve-${playlist.id}`}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

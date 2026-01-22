@@ -1,9 +1,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { z } from "zod";
 import { storage } from "./storage";
 import { api, buildUrl } from "@shared/routes";
+import { pool } from "./db";
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
@@ -49,6 +51,41 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Not authenticated" });
   }
   next();
+}
+
+async function getGuardDecision(userId: number, contextUri: string | undefined, contextType: string | undefined) {
+  const approved = await storage.getApprovedSourcePlaylists(userId);
+  const guardEnabled = approved.length > 0;
+
+  const currentPlaylistId =
+    contextUri && (contextType === "playlist" || contextUri.includes(":playlist:") || contextUri.includes("playlist"))
+      ? contextUri.split(":").pop() ?? null
+      : null;
+
+  if (!guardEnabled) {
+    return { guardEnabled, guardBlocked: false, guardMessage: undefined as string | undefined, currentPlaylistId };
+  }
+
+  if (!currentPlaylistId) {
+    return {
+      guardEnabled,
+      guardBlocked: true,
+      guardMessage: "Safeguard enabled: not playing from an approved playlist. No playlist changes were made.",
+      currentPlaylistId: null,
+    };
+  }
+
+  const approvedIds = new Set(approved.map((p) => p.playlistId));
+  if (!approvedIds.has(currentPlaylistId)) {
+    return {
+      guardEnabled,
+      guardBlocked: true,
+      guardMessage: "Safeguard enabled: current playlist is not approved. No playlist changes were made.",
+      currentPlaylistId,
+    };
+  }
+
+  return { guardEnabled, guardBlocked: false, guardMessage: undefined as string | undefined, currentPlaylistId };
 }
 
 async function refreshTokenIfNeeded(userId: number): Promise<string | null> {
@@ -101,6 +138,12 @@ async function spotifyFetch(userId: number, endpoint: string, options: RequestIn
   });
 
   if (response.status === 204) return null;
+  // Respect Spotify rate-limits.
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get("retry-after") ?? "1");
+    const error = await response.text();
+    throw new Error(`Spotify API error: 429 - Too many requests (retry-after=${retryAfter}s) - ${error}`);
+  }
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Spotify API error: ${response.status} - ${error}`);
@@ -114,11 +157,19 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  // Use Postgres-backed sessions to avoid MemoryStore leaks and survive restarts.
+  const PgSession = connectPgSimple(session);
+  const sessionStore =
+    process.env.DATABASE_URL
+      ? new PgSession({ pool, tableName: "testerfy_sessions", createTableIfMissing: true })
+      : undefined;
+
   app.use(
     session({
       secret: process.env.SESSION_SECRET || "testerfy-session-secret",
       resave: false,
       saveUninitialized: false,
+      store: sessionStore,
       proxy: true,
       cookie: {
         // "auto" respects req.secure when behind a trusted proxy.
@@ -269,6 +320,33 @@ export async function registerRoutes(
     res.json(playlists);
   });
 
+  app.get(api.approvedSourcePlaylists.list.path, requireAuth, async (req, res) => {
+    const playlists = await storage.getApprovedSourcePlaylists(req.session.userId!);
+    res.json(playlists);
+  });
+
+  app.post(api.approvedSourcePlaylists.add.path, requireAuth, async (req, res) => {
+    try {
+      const input = api.approvedSourcePlaylists.add.input.parse(req.body);
+      const created = await storage.addApprovedSourcePlaylist({
+        userId: req.session.userId!,
+        playlistId: input.playlistId,
+        playlistName: input.playlistName,
+      });
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(buildUrl(api.approvedSourcePlaylists.remove.path, { id: ":id" }), requireAuth, async (req, res) => {
+    await storage.removeApprovedSourcePlaylist(Number(req.params.id), req.session.userId!);
+    res.status(204).send();
+  });
+
   app.post(api.targetPlaylists.add.path, requireAuth, async (req, res) => {
     try {
       const input = api.targetPlaylists.add.input.parse(req.body);
@@ -339,6 +417,42 @@ export async function registerRoutes(
       let removedFromSource = false;
       let removalError: string | undefined;
 
+      const guard = await getGuardDecision(req.session.userId!, contextUri, contextType);
+
+      // If guard is enabled and blocked, still skip but do not touch playlists.
+      if (guard.guardBlocked) {
+        try {
+          await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+        } catch (err) {
+          console.error("Failed to skip:", err);
+        }
+
+        await storage.addSongAction({
+          userId: req.session.userId!,
+          trackId: playbackState.item.id,
+          trackName: playbackState.item.name,
+          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+          albumName: playbackState.item.album?.name,
+          albumArt: playbackState.item.album?.images?.[0]?.url,
+          action: "like",
+          sourcePlaylistId: guard.currentPlaylistId ?? undefined,
+          sourcePlaylistName: undefined,
+          guardBlocked: true,
+        });
+
+        return res.json({
+          success: true,
+          addedToTargets: 0,
+          targetPlaylistsCount: targetPlaylists.length,
+          removedFromSource: false,
+          guardEnabled: guard.guardEnabled,
+          guardBlocked: true,
+          guardMessage: guard.guardMessage,
+          currentPlaylistId: guard.currentPlaylistId,
+          sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+        });
+      }
+
       for (const target of targetPlaylists) {
         try {
           await spotifyFetch(req.session.userId!, `/playlists/${target.playlistId}/tracks`, {
@@ -392,6 +506,7 @@ export async function registerRoutes(
         action: 'like',
         sourcePlaylistId: contextUri?.split(":").pop(),
         sourcePlaylistName,
+        guardBlocked: false,
       });
 
       res.json({
@@ -401,6 +516,9 @@ export async function registerRoutes(
         addErrors: addErrors.length ? addErrors.slice(0, 3) : undefined,
         removedFromSource,
         removalError,
+        guardEnabled: guard.guardEnabled,
+        guardBlocked: false,
+        currentPlaylistId: guard.currentPlaylistId,
         sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
       });
     } catch (err) {
@@ -430,6 +548,40 @@ export async function registerRoutes(
       let removedFromSource = false;
       let removalTarget: "playlist" | "library" | null = null;
       let removalError: string | undefined;
+
+      const guard = await getGuardDecision(req.session.userId!, contextUri, contextType);
+
+      if (guard.guardBlocked) {
+        try {
+          await spotifyFetch(req.session.userId!, "/me/player/next", { method: "POST" });
+        } catch (err) {
+          console.error("Failed to skip:", err);
+        }
+
+        await storage.addSongAction({
+          userId: req.session.userId!,
+          trackId: playbackState.item.id,
+          trackName: playbackState.item.name,
+          artistName: playbackState.item.artists.map((a: { name: string }) => a.name).join(", "),
+          albumName: playbackState.item.album?.name,
+          albumArt: playbackState.item.album?.images?.[0]?.url,
+          action: "dislike",
+          sourcePlaylistId: guard.currentPlaylistId ?? undefined,
+          sourcePlaylistName: undefined,
+          guardBlocked: true,
+        });
+
+        return res.json({
+          success: true,
+          removedFromSource: false,
+          removalTarget: null,
+          guardEnabled: guard.guardEnabled,
+          guardBlocked: true,
+          guardMessage: guard.guardMessage,
+          currentPlaylistId: guard.currentPlaylistId,
+          sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
+        });
+      }
 
       // Remove from the current *source* when possible.
       // - playlist: remove track from playlist
@@ -491,6 +643,7 @@ export async function registerRoutes(
         action: 'dislike',
         sourcePlaylistId: contextUri?.split(":").pop(),
         sourcePlaylistName,
+        guardBlocked: false,
       });
 
       // Keep backwards-compat `success`, but include useful debug fields for troubleshooting.
@@ -499,6 +652,9 @@ export async function registerRoutes(
         removedFromSource,
         removalTarget,
         removalError,
+        guardEnabled: guard.guardEnabled,
+        guardBlocked: false,
+        currentPlaylistId: guard.currentPlaylistId,
         sourceContext: contextType ? { type: contextType, uri: contextUri ?? null } : null,
       });
     } catch (err) {
