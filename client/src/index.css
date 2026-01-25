@@ -153,6 +153,23 @@
     pointer-events: none;
   }
 
+  /* High-contrast text for overlays on variable artwork backgrounds. */
+  .testerfy-text-outline {
+    color: #ffffff;
+    -webkit-text-stroke: 1px rgba(0, 0, 0, 0.95);
+    /* Fallback outline for browsers without text-stroke */
+    text-shadow:
+      -1px -1px 0 rgba(0, 0, 0, 0.95),
+      0 -1px 0 rgba(0, 0, 0, 0.95),
+      1px -1px 0 rgba(0, 0, 0, 0.95),
+      -1px 0 0 rgba(0, 0, 0, 0.95),
+      1px 0 0 rgba(0, 0, 0, 0.95),
+      -1px 1px 0 rgba(0, 0, 0, 0.95),
+      0 1px 0 rgba(0, 0, 0, 0.95),
+      1px 1px 0 rgba(0, 0, 0, 0.95),
+      0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+
   .no-default-hover-elevate {}
   .no-default-active-elevate {}
 
